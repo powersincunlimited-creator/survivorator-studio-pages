@@ -1,0 +1,1028 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Survivorator Studio</title>
+<style>
+:root {
+  --bg: #0f1220; --panel: #171b2e; --panel2: #1e2340; --line: #2b3257; --text: #e6e9f5; --dim: #8e97bd; --accent: #5ec8ff; --accent2: #ff5cc8;
+  --ok: #5fe39a; --warn: #ffcb5c; --bad: #ff6b7a; --input: #0c0f1c; --radius: 8px;
+  --font: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 var(--font); }
+button, input, select, textarea { font: inherit; color: inherit; }
+#app { display: grid; grid-template-columns: 188px 1fr; grid-template-rows: 48px 1fr; height: 100%; }
+header { grid-column: 1 / 3; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
+header .logo { font-weight: 700; letter-spacing: .04em; color: var(--accent); }
+header .logo b { color: var(--accent2); }
+header .spacer { flex: 1; }
+nav { background: var(--panel); border-right: 1px solid var(--line); padding: 10px 8px; display: flex; flex-direction: column; gap: 3px; overflow: auto; }
+nav button { text-align: left; background: none; border: 0; padding: 8px 10px; border-radius: 6px; color: var(--dim); cursor: pointer; display: flex; justify-content: space-between; gap: 6px; }
+nav button:hover { background: var(--panel2); color: var(--text); }
+nav button.on { background: var(--panel2); color: var(--text); box-shadow: inset 3px 0 var(--accent); }
+nav .badge { font-size: 11px; background: var(--bad); color: #fff; border-radius: 9px; padding: 0 6px; align-self: center; }
+nav h4 { margin: 12px 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); font-weight: 600; }
+main { overflow: auto; padding: 18px 22px 60px; }
+h2 { margin: 0 0 4px; font-size: 20px; }
+h3 { margin: 18px 0 8px; font-size: 14px; text-transform: uppercase; letter-spacing: .07em; color: var(--accent); font-weight: 600; }
+p.lead { color: var(--dim); margin: 0 0 14px; max-width: 80ch; }
+.btn { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: #04121c; border-color: var(--accent); font-weight: 600; }
+.btn.primary:disabled { opacity: .45; cursor: default; }
+.btn.danger:hover { border-color: var(--bad); color: var(--bad); }
+.btn.small { padding: 2px 8px; font-size: 12px; }
+.chip { font-size: 12px; padding: 3px 9px; border-radius: 12px; background: var(--panel2); border: 1px solid var(--line); color: var(--dim); }
+.chip.ok { color: var(--ok); } .chip.warn { color: var(--warn); } .chip.bad { color: var(--bad); cursor: pointer; }
+input[type=text], input[type=number], select, textarea { background: var(--input); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; min-width: 0; }
+input[type=number] { width: 110px; }
+input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+input.bad, select.bad, textarea.bad { border-color: var(--bad); }
+textarea { width: 100%; font-family: var(--mono); font-size: 12px; min-height: 260px; }
+input[type=color] { width: 40px; height: 28px; padding: 0; background: none; border: 1px solid var(--line); border-radius: 5px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
+.card > summary { cursor: pointer; font-weight: 600; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.row { display: grid; grid-template-columns: 190px 1fr; gap: 10px; align-items: start; padding: 5px 0; border-bottom: 1px solid #ffffff08; }
+.row > label { color: var(--text); padding-top: 5px; }
+.row .hint { color: var(--dim); font-size: 12px; margin-top: 3px; max-width: 90ch; }
+.row .ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.row .unit { color: var(--dim); font-size: 12px; }
+.row.changed > label::after { content: " ●"; color: var(--accent2); }
+.split { display: grid; grid-template-columns: 250px 1fr; gap: 16px; }
+.list { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); max-height: calc(100vh - 150px); overflow: auto; }
+.list .item { padding: 7px 10px; cursor: pointer; display: flex; justify-content: space-between; border-bottom: 1px solid #ffffff08; gap: 6px; }
+.list .item:hover { background: var(--panel2); }
+.list .item.on { background: var(--panel2); box-shadow: inset 3px 0 var(--accent2); }
+.list .item small { color: var(--dim); }
+.list .tools { padding: 6px; display: flex; gap: 6px; flex-wrap: wrap; border-top: 1px solid var(--line); position: sticky; bottom: 0; background: var(--panel); }
+.problems { list-style: none; padding: 0; margin: 0; }
+.problems li { padding: 5px 8px; border-left: 3px solid var(--bad); background: var(--panel); margin-bottom: 4px; border-radius: 0 5px 5px 0; cursor: pointer; }
+.problems li:hover { background: var(--panel2); }
+.problems li b { color: var(--bad); }
+.mods { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px; }
+.mod { display: flex; gap: 8px; align-items: flex-start; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; }
+.mod.off { opacity: .6; } .mod small { color: var(--dim); display: block; }
+table.t { border-collapse: collapse; width: 100%; } table.t th { text-align: left; color: var(--dim); font-weight: 500; font-size: 12px; padding: 2px 6px; } table.t td { padding: 2px 4px; }
+.toast { position: fixed; right: 18px; bottom: 18px; background: var(--panel2); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 14px; z-index: 10; max-width: 420px; }
+.tag { display: inline-block; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 0 8px; margin: 1px 3px 1px 0; font-size: 12px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; } .kv b { color: var(--dim); font-weight: 500; }
+.dim { color: var(--dim); }
+@media (max-width: 760px) { #app { grid-template-columns: 1fr; grid-template-rows: 48px auto 1fr; } header { grid-column: 1; } nav { flex-direction: row; overflow-x: auto; padding: 6px; } nav h4 { display: none; }
+  .split { grid-template-columns: 1fr; } .row { grid-template-columns: 1fr; } }
+
+.modal { position: fixed; inset: 0; background: #000a; display: grid; place-items: center; z-index: 20; }
+.dlg { background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; padding: 18px 20px; width: min(460px, 92vw); }
+.dlg p { margin: 0 0 10px; }
+
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <span class="logo">SURVIVORATOR <b>STUDIO</b></span>
+    <select id="packSelect" title="Which game pack you are editing"></select>
+    <button class="btn small" id="newPack" title="Copy this pack under a new name">New pack…</button>
+    <span class="spacer"></span>
+    <button class="chip" id="whoBtn" title="Your name, shown next to your saves">…</button>
+    <span class="chip" id="problemChip" title="Problems the validator found in this pack">…</span>
+    <span class="chip" id="saveChip">…</span>
+    <button class="btn primary" id="saveBtn" title="Ctrl+S">Save</button>
+  </header>
+  <nav id="nav"></nav>
+  <main id="main"><p class="lead">Connecting to the studio database…</p></main>
+</div>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
+import { getFirestore, collection, doc, getDocs, setDoc, addDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+const DATA = {"firebase": {"apiKey": "AIzaSyBt9shBGY0WwQABtPpLVAz-YVrO4pKmwFU", "authDomain": "survivorator-studio.firebaseapp.com", "projectId": "survivorator-studio", "storageBucket": "survivorator-studio.firebasestorage.app", "messagingSenderId": "303198919420", "appId": "1:303198919420:web:c93eef0f6dd1199c475579"}, "schema": {"format": 0, "note": "Every rules knob the engine knows: its default (today's game), its limits and what it means. game.json 'rules' and the presets may set any of these by area.knob; anything not set falls back to 'default'. The validator and (later) the studio form read this file; scripts/rules.gd reads it at run time. See design/RULES_KNOBS.md.", "areas": {"waves": {"label": "Waves and pacing", "knobs": {"length_base": {"default": 40.0, "min": 5.0, "max": 600.0, "unit": "s", "label": "Wave length, wave 1", "desc": "Seconds wave 1 lasts. Wave N lasts length_base + length_per_wave x N seconds, up to length_cap."}, "length_per_wave": {"default": 3.0, "min": 0.0, "max": 60.0, "unit": "s", "label": "Wave length growth", "desc": "Seconds added to the wave length for each wave number."}, "length_cap": {"default": 90.0, "min": 5.0, "max": 1200.0, "unit": "s", "label": "Longest wave", "desc": "Waves never last longer than this."}, "spawn_interval_start": {"default": 1.8, "min": 0.1, "max": 20.0, "unit": "s", "label": "Spawn gap, wave 1", "desc": "Seconds between spawns on wave 1 for one hero (co-op divides it by the party size)."}, "spawn_rate_growth": {"default": 0.1, "min": 0.0, "max": 2.0, "unit": "x per wave", "label": "Spawn speed-up", "desc": "How much faster spawning gets each wave: the gap is spawn_interval_start / (1 + growth x (wave - 1))."}, "spawn_interval_min": {"default": 0.45, "min": 0.05, "max": 10.0, "unit": "s", "label": "Fastest spawn gap", "desc": "The spawn gap never gets shorter than this."}, "batch_max": {"default": 4, "min": 1, "max": 20, "unit": "enemies", "label": "Most enemies per spawn", "desc": "A spawn can bring several enemies at once; the batch grows by one every batch_every waves up to this."}, "batch_every": {"default": 4, "min": 1, "max": 50, "unit": "waves", "label": "Batch growth", "desc": "Waves between each +1 to the spawn batch size."}, "crowd_cap_per_hero": {"default": 60, "min": 10, "max": 500, "unit": "enemies", "label": "Crowd cap", "desc": "Most enemies alive at once for one hero. Also a performance limit: crowds cost more than their head count."}, "crowd_cap_party_bonus": {"default": 30, "min": 0, "max": 500, "unit": "enemies", "label": "Crowd cap per extra hero", "desc": "Each hero beyond the first adds this to the crowd cap."}}}, "enemies": {"label": "Enemy growth", "knobs": {"hp_growth": {"default": 0.1, "min": 0.0, "max": 2.0, "unit": "x per wave", "label": "Health growth", "desc": "Enemy health grows this fraction of its starting health every wave (wave N: 1 + growth x (N - 1))."}, "hp_growth_late": {"default": 0.05, "min": 0.0, "max": 2.0, "unit": "x per wave", "label": "Extra health growth (late)", "desc": "More health growth on top, every wave after late_from_wave (so health grows faster once the early waves are over)."}, "damage_growth": {"default": 0.12, "min": 0.0, "max": 2.0, "unit": "x per wave", "label": "Damage growth", "desc": "Enemy damage (touch hits and bullets) grows this fraction every wave after late_from_wave. Bosses keep their own numbers."}, "late_from_wave": {"default": 2, "min": 0, "max": 100, "unit": "wave", "label": "Late growth starts after", "desc": "The extra health growth and the damage growth count waves above this one (2 = they start on wave 3)."}, "speed_growth": {"default": 0.06, "min": 0.0, "max": 1.0, "unit": "x per wave", "label": "Speed growth", "desc": "Enemy speed grows this fraction every wave, up to speed_cap."}, "speed_cap": {"default": 2.2, "min": 1.0, "max": 10.0, "unit": "x", "label": "Speed cap", "desc": "Enemies never get faster than this multiple of their starting speed (before the early-wave bonus). Set below the hero's speed and they can never catch a moving hero."}, "early_fade_wave": {"default": 6, "min": 2, "max": 100, "unit": "wave", "label": "Gentle-start fade", "desc": "The early-wave bonuses below are full on wave 1 and fade to nothing on this wave."}, "early_hp": {"default": 0.33, "min": 0.0, "max": 3.0, "unit": "x", "label": "Early health bonus", "desc": "Extra enemy health on wave 1 (fades out). Early waves are made tougher so a hero standing still cannot ignore them; 0 = none."}, "early_speed": {"default": 0.15, "min": 0.0, "max": 3.0, "unit": "x", "label": "Early speed bonus", "desc": "Extra enemy speed on wave 1 (fades out); 0 = none."}, "early_spawn_rate": {"default": 0.64, "min": 0.0, "max": 5.0, "unit": "x", "label": "Early spawn bonus", "desc": "Extra spawn rate on wave 1 (fades out); 0 = none."}, "elite_chance_scale": {"default": 1.0, "min": 0.0, "max": 10.0, "unit": "x", "label": "Elite chance scale", "desc": "Multiplies every kind's elite chance (0 = no elites at all, 2 = twice as many). Only kinds that define an `elite` ever spawn elite."}}}, "bosses": {"label": "Bosses", "knobs": {"hp_per_extra_hero": {"default": 0.8, "min": 0.0, "max": 5.0, "unit": "x per hero", "label": "Boss health per extra hero", "desc": "In co-op a boss has this much more health for every hero beyond the first (0.8 = +80%)."}, "hp_per_loop": {"default": 0.25, "min": 0.0, "max": 5.0, "unit": "x per loop", "label": "Boss health per repeat", "desc": "Each time the boss list has been used up and starts again, the bosses have this much more health."}, "backup_slowdown": {"default": 5.0, "min": 1.0, "max": 50.0, "unit": "x", "label": "Boss backup trickle", "desc": "A boss that calls henchmen gets them one at a time at the normal spawn gap times this (5 = a fifth of the normal rate)."}, "backup_secs": {"default": 14.0, "min": 1.0, "max": 120.0, "unit": "s", "label": "Backup duration", "desc": "How long one 'calls backup at X% health' trigger keeps the henchmen coming."}, "collect_min_secs": {"default": 0.8, "min": 0.0, "max": 10.0, "unit": "s", "label": "Loot vacuum, shortest", "desc": "After a boss falls everything on the field flies to the heroes; the wave ends once it is all in, but not sooner than this."}, "collect_max_secs": {"default": 3.0, "min": 0.5, "max": 30.0, "unit": "s", "label": "Loot vacuum, longest", "desc": "...and never later than this, whatever is left."}}}, "hero": {"label": "Hero", "knobs": {"xp_first_level": {"default": 60.0, "min": 1.0, "max": 100000.0, "unit": "xp", "label": "XP for level 2", "desc": "Experience a hero needs to reach level 2 (every enemy kill gives xp)."}, "xp_per_level": {"default": 40.0, "min": 0.0, "max": 100000.0, "unit": "xp", "label": "XP growth per level", "desc": "Each level needs this much more than the last (level N needs xp_first_level + xp_per_level x (N - 1))."}, "grace_after_hit": {"default": 0.5, "min": 0.0, "max": 5.0, "unit": "s", "label": "Grace after a hit", "desc": "Seconds a hero cannot be hurt again after taking a hit."}, "revive_health": {"default": 0.5, "min": 0.05, "max": 1.0, "unit": "fraction", "label": "Revive health", "desc": "Health a downed hero comes back with (1 = full)."}, "revive_grace": {"default": 1.5, "min": 0.0, "max": 10.0, "unit": "s", "label": "Grace after revive", "desc": "Seconds a revived hero cannot be hurt."}, "power_slots": {"default": 6, "min": 1, "max": 6, "unit": "powers", "label": "Power slots", "desc": "Powers a hero can have active at once (the held-weapon layout supports up to 6)."}, "gear_bag_size": {"default": 16, "min": 0, "max": 60, "unit": "pieces", "label": "Gear bag", "desc": "Spare gear pieces a hero can carry."}, "power_bench_size": {"default": 14, "min": 0, "max": 60, "unit": "powers", "label": "Power bench", "desc": "Spare powers a hero can bank (for combining and fusing)."}, "base_stats": {"type": "stats", "default": {}, "label": "Starting stats", "desc": "Overrides for every hero's starting stat block, by stat name (the engine's own defaults are Player.BASE: max_hp 100, move_speed 210, crit_chance 0.10, crit_damage 1.75, pickup_radius 96, ...). A hero class's own bonuses and gear stack on top. Only the stats named here change."}, "ability_default": {"type": "text", "default": "roll", "label": "Default ability", "desc": "The id of the ability (abilities.json) every hero gets unless its own entry in heroes.json names one. Empty = no ability."}, "ability_cooldown_scale": {"default": 1.0, "min": 0.1, "max": 10.0, "unit": "x", "label": "Ability cooldown scale", "desc": "Multiplies every ability's cooldown (2 = twice as long)."}}}, "shop": {"label": "Shop and prices", "knobs": {"offer_count": {"default": 5, "min": 1, "max": 12, "unit": "offers", "label": "Offers per shop", "desc": "Power and item offers each hero sees in the between-wave shop."}, "reroll_cost": {"default": 4, "min": 0, "max": 1000, "unit": "currency", "label": "Reroll price", "desc": "What the first reroll of the offers costs."}, "reroll_step": {"default": 2, "min": 0, "max": 1000, "unit": "currency", "label": "Reroll price growth", "desc": "Each further reroll in the same shop costs this much more."}, "gear_offer_count": {"default": 4, "min": 1, "max": 12, "unit": "pieces", "label": "Gear offers", "desc": "Gear pieces on offer in the gear tab."}, "gear_reroll_cost": {"default": 6, "min": 0, "max": 1000, "unit": "currency", "label": "Gear reroll price", "desc": "What the first reroll of the gear offers costs."}, "gear_reroll_step": {"default": 3, "min": 0, "max": 1000, "unit": "currency", "label": "Gear reroll growth", "desc": "Each further gear reroll costs this much more."}, "power_price_basic": {"default": 15, "min": 1, "max": 1000, "unit": "currency", "label": "Basic power price", "desc": "Base price (before rarity) of a power with a basic delivery: projectile, melee swing, cone, thrust, sweep and the other simple shapes."}, "power_price_area": {"default": 17, "min": 1, "max": 1000, "unit": "currency", "label": "Area power price", "desc": "Base price of a zone, nova or mine power."}, "power_price_sustained": {"default": 19, "min": 1, "max": 1000, "unit": "currency", "label": "Sustained power price", "desc": "Base price of a beam, aura or area-blast power."}, "power_price_summon": {"default": 22, "min": 1, "max": 1000, "unit": "currency", "label": "Summon power price", "desc": "Base price of a summon or turret power."}, "gear_price": {"default": 14, "min": 1, "max": 1000, "unit": "currency", "label": "Gear price", "desc": "Base price of a gear piece (before rarity)."}, "gear_sell_fraction": {"default": 0.55, "min": 0.0, "max": 1.0, "unit": "fraction", "label": "Gear sells for", "desc": "Selling a gear piece returns this fraction of its price."}, "power_sell_fraction": {"default": 0.4, "min": 0.0, "max": 1.0, "unit": "fraction", "label": "Powers sell for", "desc": "Selling or retiring a power returns this fraction of its worth."}}}, "loot": {"label": "Loot and rarity", "knobs": {"rarity_odds": {"type": "list", "length": 4, "default": [0.72, 0.18, 0.08, 0.02], "min": 0.0, "max": 1000.0, "unit": "weights", "label": "Rarity odds", "desc": "How often an offer or drop is common / uncommon / rare / epic (weights, they are scaled to add up to 1). Legendary and mythic can only be made by combining."}, "rarity_power": {"type": "list", "length": 6, "default": [1.0, 1.35, 1.8, 2.35, 3.0, 3.8], "min": 0.1, "max": 1000.0, "unit": "x", "label": "Rarity strength", "desc": "What each rarity (common .. mythic) multiplies a power's or piece's numbers by."}, "rarity_price": {"type": "list", "length": 6, "default": [1.0, 1.6, 2.6, 4.2, 6.5, 10.0], "min": 0.1, "max": 1000.0, "unit": "x", "label": "Rarity price", "desc": "What each rarity multiplies the shop price by (and the sell value)."}, "luck_rarity_per_point": {"default": 0.02, "min": 0.0, "max": 1.0, "unit": "per luck", "label": "Luck: rarity shift", "desc": "Each luck point shifts this much probability from common toward the better rarities."}, "luck_rarity_cap": {"default": 0.45, "min": 0.0, "max": 1.0, "unit": "probability", "label": "Luck: rarity cap", "desc": "The most luck can shift the rarity odds."}, "wave_luck_per_wave": {"default": 0.5, "min": 0.0, "max": 10.0, "unit": "luck", "label": "Later waves drop better", "desc": "Dropped loot rolls its rarity with this much extra luck for every wave number."}, "wave_luck_cap": {"default": 10.0, "min": 0.0, "max": 1000.0, "unit": "luck", "label": "Later-wave bonus cap", "desc": "The most extra luck the wave number can add to a drop."}, "drop_budget": {"type": "budget", "default": {"gear": [[1, 0.004], [2, 0.015], [3, 0.035], [5, 0.1], [7, 0.18], [10, 0.35], [15, 0.6], [20, 0.8]], "power": [[1, 0.002], [2, 0.006], [3, 0.015], [5, 0.04], [7, 0.08], [10, 0.15], [15, 0.28], [20, 0.4]], "charge": [[1, 0.002], [2, 0.008], [3, 0.02], [5, 0.06], [7, 0.12], [10, 0.22], [15, 0.38], [20, 0.5]]}, "min": 0.0, "max": 100.0, "unit": "drops per wave", "label": "Drop budget", "desc": "For each lane (gear, power, charge = fusion charge): rows of [wave, expected drops in that wave for one hero at no luck]; between rows the number is interpolated, after the last row it stays flat. A pack may replace a lane's rows."}, "drop_scale": {"default": 1.0, "min": 0.0, "max": 20.0, "unit": "x", "label": "Drop amount", "desc": "Multiplies every lane of the drop budget (0 = no loot drops, 2 = twice as much)."}, "max_drops_first": {"default": 1, "min": 0, "max": 100, "unit": "drops", "label": "Most drops per wave, early", "desc": "The most loot a hero can get from kills in one wave, at the start."}, "max_drops_every": {"default": 5, "min": 1, "max": 100, "unit": "waves", "label": "Drop limit growth", "desc": "The per-wave drop limit goes up by one every this many waves."}, "luck_drop_per_point": {"default": 0.06, "min": 0.0, "max": 1.0, "unit": "per luck", "label": "Luck: more drops", "desc": "Each luck point raises the chance of a drop by this fraction."}, "luck_drop_cap_start": {"default": 1.25, "min": 1.0, "max": 20.0, "unit": "x", "label": "Luck: drop cap, wave 1", "desc": "Luck can multiply drop chances by at most this on wave 1..."}, "luck_drop_cap_late": {"default": 2.0, "min": 1.0, "max": 20.0, "unit": "x", "label": "Luck: drop cap, wave 20", "desc": "...rising to this by wave 20."}, "combine_count": {"default": 3, "min": 2, "max": 10, "unit": "items", "label": "Items to combine", "desc": "How many identical items of one rarity combine into one of the next rarity."}}}, "economy": {"label": "Economy", "knobs": {"clear_bonus_base": {"default": 12, "min": 0, "max": 100000, "unit": "currency", "label": "Wave-clear bonus", "desc": "Every hero is paid this when a wave is cleared, plus clear_bonus_per_wave for each wave number."}, "clear_bonus_per_wave": {"default": 4, "min": 0, "max": 100000, "unit": "currency", "label": "Wave-clear bonus growth", "desc": "Added to the wave-clear bonus for each wave number."}, "interest_cap": {"default": 40, "min": 0, "max": 100000, "unit": "currency", "label": "Interest cap", "desc": "Heroes with the interest stat earn a slice of their savings at each wave clear; this is the most one wave can pay."}, "star_chance": {"default": 0.34, "min": 0.0, "max": 1.0, "unit": "probability", "label": "Star drop chance", "desc": "The chance a kill drops a star (the run currency) in a small wave. Big crowds drop proportionally fewer (see star_crowd_ref) so income does not balloon."}, "star_chance_min": {"default": 0.08, "min": 0.0, "max": 1.0, "unit": "probability", "label": "Lowest star drop chance", "desc": "The star chance never falls below this, however big the crowd."}, "star_crowd_ref": {"default": 39.0, "min": 1.0, "max": 10000.0, "unit": "kills", "label": "Star reference crowd", "desc": "The chance is star_chance x sqrt(star_crowd_ref / crowd): at this many expected kills in a wave it is the full star_chance."}, "milestone_charge_waves": {"type": "list", "length": null, "default": [3, 6], "min": 1, "max": 1000, "unit": "waves", "label": "Fusion charge milestones", "desc": "Clearing these waves grants every hero fusion charges (a list of wave numbers; empty = none)."}, "milestone_charges": {"default": 1, "min": 0, "max": 100, "unit": "charges", "label": "Charges per milestone", "desc": "How many fusion charges each milestone wave grants."}, "scrap_gear": {"default": 10, "min": 0, "max": 100000, "unit": "currency", "label": "Full-bag refund, gear", "desc": "When a gear drop has nowhere to go (bag full) it pays this times (rarity + 1) instead."}, "scrap_power": {"default": 12, "min": 0, "max": 100000, "unit": "currency", "label": "Full-bench refund, power", "desc": "When a power drop has nowhere to go (bench full) it pays this times its rank times (rarity + 1) instead."}}}, "map": {"label": "Map and camera", "knobs": {"spawn_ring": {"default": 780.0, "min": 100.0, "max": 5000.0, "unit": "px", "label": "Spawn distance", "desc": "Enemies appear on a ring this far from the middle of the heroes (then nudged away from any hero closer than the minimum below)."}, "spawn_min_distance": {"default": 240.0, "min": 0.0, "max": 2000.0, "unit": "px", "label": "Closest spawn", "desc": "No enemy spawns closer than this to a living hero."}, "camera_zoom": {"default": 0.79, "min": 0.2, "max": 3.0, "unit": "x", "label": "Camera zoom", "desc": "How close the camera is in a solo game (bigger = closer, the world looks larger). Heroes, enemies and weapons scale with it."}, "camera_zoom_out_min": {"default": 0.58, "min": 0.1, "max": 3.0, "unit": "x", "label": "Furthest co-op zoom-out", "desc": "In co-op the camera pulls back to keep both heroes in view, but never further than this. Keep tether_distance inside what this can show."}}}, "coop": {"label": "Co-op", "knobs": {"tether_distance": {"default": 840.0, "min": 100.0, "max": 5000.0, "unit": "px", "label": "Tether distance", "desc": "How far apart two heroes can get before the one who strayed is eased back toward the other."}, "tether_stiffness": {"default": 2.2, "min": 0.0, "max": 50.0, "unit": "x", "label": "Tether pull", "desc": "How hard the tether pulls (speed per pixel past the distance)."}, "tether_speed": {"default": 170.0, "min": 0.0, "max": 2000.0, "unit": "px/s", "label": "Tether top speed", "desc": "The fastest the tether drags a hero back."}, "spawn_per_extra_hero": {"default": 1.0, "min": 0.0, "max": 3.0, "unit": "x", "label": "Spawn rate per extra hero", "desc": "Each hero beyond the first speeds spawning up by this fraction of the solo rate (1 = double rate for two heroes, 0 = the same as solo)."}, "currency": {"type": "choice", "options": ["full_to_all", "split", "collector_only", "shared_pool"], "default": "full_to_all", "label": "Run currency sharing", "desc": "Who gets the run currency from a pickup. full_to_all: every living hero gets the full amount (today). split: the amount is divided among the living heroes (any remainder goes to the one who collected). collector_only: only the one who collected. shared_pool: one wallet for the whole party, spent by anyone (the wave-clear bonus is paid into it once)."}, "xp": {"type": "choice", "options": ["full_to_all", "split", "killer_only"], "default": "full_to_all", "label": "Experience sharing", "desc": "Who gets the xp from a kill. full_to_all: every living hero gets all of it (today). split: divided among the living heroes. killer_only: only the hero whose hit finished the enemy (damage over time and other unattributed kills are split)."}, "loot": {"type": "choice", "options": ["collector", "round_robin", "random_hero"], "default": "collector", "label": "Loot sharing", "desc": "Who receives a dropped gear piece, power or fusion charge. collector: whoever picked it up (today). round_robin: the living heroes in turn, whoever picked it up. random_hero: a random living hero."}, "collector_bonus": {"default": 1.0, "min": 0.0, "max": 5.0, "unit": "x", "label": "Collector bonus", "desc": "The extra currency the hero who picks a star up gets from their own pop gain stat is multiplied by this (0 = off, 1 = as today)."}, "revive_mode": {"type": "choice", "options": ["wave_end", "in_run", "bleed_out"], "default": "wave_end", "label": "Reviving a downed hero", "desc": "wave_end: a downed hero comes back when the wave is won (today). in_run: a living hero can also revive them mid-wave by standing next to them for revive_secs. bleed_out: like in_run, but a hero left down for bleed_secs is out for the rest of the run (no wave-end revive either); if every hero is down the run is over in all modes."}, "revive_secs": {"default": 3.0, "min": 0.5, "max": 30.0, "unit": "s", "label": "Revive time", "desc": "How long a living hero must stand within revive_radius of a downed one to revive them (in_run and bleed_out). Standing away lets the progress drain."}, "revive_radius": {"default": 90.0, "min": 30.0, "max": 400.0, "unit": "px", "label": "Revive reach", "desc": "How close a living hero has to be to revive a downed one."}, "bleed_secs": {"default": 25.0, "min": 3.0, "max": 300.0, "unit": "s", "label": "Bleed-out time", "desc": "In bleed_out mode, how long a downed hero can wait for a revive before they are out for the run."}, "camera": {"type": "choice", "options": ["dynamic", "static"], "default": "dynamic", "label": "Co-op camera", "desc": "dynamic: the camera pulls back as the heroes drift apart, up to map.camera_zoom_out_min (today). static: it keeps one fixed zoom (static_zoom) whatever the distance, and the tether is tightened to what that zoom can show, so neither hero leaves the screen."}, "static_zoom": {"default": 0.66, "min": 0.2, "max": 3.0, "unit": "x", "label": "Static camera zoom", "desc": "The fixed zoom of the static co-op camera (never closer than map.camera_zoom or further than map.camera_zoom_out_min)."}, "friendly_fire": {"type": "choice", "options": ["off", "on"], "default": "off", "label": "Friendly fire", "desc": "on: a hero's projectiles, nova pulses and the slam ability also hurt the other hero (for friendly_fire_scale of their damage). Other power shapes (swings, beams, mines, turrets...) do not hurt partners yet."}, "friendly_fire_scale": {"default": 0.5, "min": 0.0, "max": 2.0, "unit": "x", "label": "Friendly fire damage", "desc": "The share of a hit that lands on a partner when friendly fire is on."}, "shop_secs": {"default": 0.0, "min": 0.0, "max": 600.0, "unit": "s", "label": "Shop timer", "desc": "The shop closes by itself after this many seconds even if not everyone has readied up (0 = no timer: the wave starts when everyone is ready)."}}}, "levelup": {"label": "Level-up picks", "knobs": {"choices": {"default": 3, "min": 1, "max": 6, "unit": "cards", "label": "Cards per level-up", "desc": "How many cards the level-up screen offers."}, "power_share": {"default": 0.0, "min": 0.0, "max": 1.0, "unit": "probability", "label": "Powers among the cards", "desc": "The chance each card is a power instead of a stat talent. 0 = talents only (the default); 1 = every card is a power. This is how a game without a shop gets new powers: the level-up becomes the weapon pick. Powers already on the hero are not offered; a hero with no free power slot has the pick benched."}}}}}, "presets": {"format": 0, "note": "The shared rules presets any pack can switch on by name (game.json \"preset\": \"relaxed\", or several joined by +: \"relaxed+quick_runs\"). Each only overrides the knobs it names (see data/rules_schema.json); a pack's own \"presets\" of the same name win over these.", "presets": {"classic": {"label": "Classic", "desc": "The defaults: today's game, nothing overridden.", "rules": {}}, "relaxed": {"label": "Relaxed", "desc": "Gentler: shorter waves, slower enemy growth, smaller crowds, cheaper shop, more loot, a stronger revive.", "rules": {"waves": {"length_base": 30, "crowd_cap_per_hero": 45}, "enemies": {"hp_growth": 0.07, "damage_growth": 0.08}, "shop": {"power_price_basic": 12, "power_price_area": 14, "power_price_sustained": 15, "power_price_summon": 18, "gear_price": 11}, "loot": {"drop_scale": 1.3}, "hero": {"revive_health": 0.75}}}, "brutal": {"label": "Brutal", "desc": "Harder: longer waves, faster spawn growth, tougher and harder-hitting enemies, dearer shop, less loot, a weak revive.", "rules": {"waves": {"length_base": 45, "spawn_rate_growth": 0.14}, "enemies": {"hp_growth": 0.13, "damage_growth": 0.16}, "shop": {"power_price_basic": 19, "power_price_area": 21, "power_price_sustained": 24, "power_price_summon": 28, "gear_price": 18}, "loot": {"drop_scale": 0.8}, "hero": {"revive_health": 0.35}}}, "quick_runs": {"label": "Quick runs", "desc": "Short waves and fast levelling, for a Vampire-Survivors-style game.", "rules": {"waves": {"length_base": 25, "length_per_wave": 2, "length_cap": 45}, "hero": {"xp_first_level": 40, "xp_per_level": 25}}}, "shared_party": {"label": "Shared party", "desc": "Co-op as one team: a shared wallet, split experience, loot handed round in turn.", "rules": {"coop": {"currency": "shared_pool", "xp": "split", "loot": "round_robin"}}}, "levelup_powers": {"label": "Powers on level-up", "desc": "Level-ups offer powers as well as talents (about 6 cards in 10 are powers): the weapon pick of a Vampire-Survivors-style game, and the way to get powers when the shop module is off.", "rules": {"levelup": {"power_share": 0.6}}}, "coop_rescue": {"label": "Co-op rescue", "desc": "A downed hero can be revived mid-wave by a partner standing next to them.", "rules": {"coop": {"revive_mode": "in_run"}}}, "coop_hardcore": {"label": "Co-op hardcore", "desc": "A downed hero bleeds out unless rescued, your shots hurt your partner, and the camera does not follow you apart: stay together.", "rules": {"coop": {"revive_mode": "bleed_out", "friendly_fire": "on", "camera": "static"}}}}}, "consts": {"files": ["game", "heroes", "powers", "looks", "enemies", "bosses", "gear", "talents", "achievements", "fusion", "hero_effects", "shop", "puppets", "arena", "abilities"], "stats": ["max_hp", "move_speed", "damage_pct", "flat_damage", "attack_speed_pct", "crit_chance", "crit_damage", "range_pct", "radius_pct", "pickup_radius", "regen", "armor", "pop_gain_pct", "luck", "dodge_chance", "healing_pct", "life_steal", "knockback_pct", "interest_pct", "ability_haste", "physical_pct", "dexterity_pct", "magic_pct", "psychic_pct", "energy_pct", "tech_pct", "on_hit_knockback", "on_hit_mark_secs", "aoe_linger_pct", "gadget_cap_bonus", "turret_dmg_pct", "explosive_dmg_pct", "explosive_radius_pct", "kill_speed_burst", "overload_chance", "emergency_shield", "instant_drone_respawn", "pierce_bonus", "bleed_on_hit_chance", "mark_bonus_pct", "wave_bonus_pct", "crit_burn_secs", "crit_stun_secs", "crit_nova_pct", "crit_knockback", "kill_heal_low_hp"], "shapes": ["PROJECTILE", "MELEE_ARC", "CONE", "BEAM", "NOVA", "ZONE", "AURA", "SUMMON", "MINE", "AREA", "TURRET", "SWEEP", "THRUST", "BARRAGE_MELEE", "BARRAGE_RANGED", "STREAM", "LASSO", "MULTI_BEAM", "WAVE"], "damage_types": ["dexterity", "energy", "magic", "physical", "psychic", "random", "tech"], "statuses": ["bleed", "blind", "burn", "charm", "disarm", "fear", "freeze", "hold", "mark", "poison", "slow", "stun", "weaken"], "boss_abilities": ["beam", "charge", "cone", "leap", "shield", "slam", "summon", "volley", "zone"], "silhouettes": ["enforcer", "gangster", "gunner", "snatcher", "thug"], "reward_categories": ["archetypes", "fusion_recipes", "gear_sets", "powers"], "modules": {"names": ["level_up_choice", "shop", "boss", "loot", "classes", "equipment", "talents", "fusion", "coop", "achievements", "profile", "recorder", "abilities"], "requires": {"fusion": ["shop"], "equipment": ["shop"], "achievements": ["profile"]}}, "ability_kinds": ["dash", "roll", "blink", "shield", "speed_boost", "slam", "push_pulse", "burst_heal"], "ability_required": {"dash": ["distance", "duration"], "roll": ["distance", "duration"], "blink": ["distance"], "shield": ["invulnerable"], "speed_boost": ["duration", "multiplier"], "slam": ["radius", "damage"], "push_pulse": ["radius", "knockback"], "burst_heal": []}, "enemy": {"move_styles": ["direct", "wander", "lurk", "zigzag", "keep_distance", "orbit"], "attack_types": ["dash"], "trait_keys": ["armor", "knockback_resist", "regen", "enrage_at", "enrage_speed"], "ranged_styles": ["light", "heavy", "burst", "spray", "ring", "bomb"], "death_types": ["explode", "split", "drop"]}}};
+/* The pack validator in the browser: a port of tools/pack/validate_pack.py (keep the two in step; tools/studio/parity_check.py compares them on real and broken packs).
+   validatePack(pack) -> array of "file.json: message" strings. `C` (DATA.consts) holds the engine's lists of names, read from the game's scripts at build time. */
+
+const isNum = x => typeof x === "number" && !Number.isNaN(x);
+const isObj = x => x !== null && typeof x === "object" && !Array.isArray(x);
+const num = (x, d) => (x === undefined || x === null ? d : x);
+
+function checkRules(where, block, knobs, err, C, abilityIds) {
+  if (!isObj(block)) { err("game.json", `${where} must be an object of areas`); return; }
+  for (const [area, vals] of Object.entries(block)) {
+    if (!isObj(vals)) { err("game.json", `${where}.${area} must be an object of knobs`); continue; }
+    for (const [k, v] of Object.entries(vals)) {
+      const path = `${area}.${k}`;
+      const spec = knobs[path];
+      if (!spec) err("game.json", `${where}: unknown rule '${path}'`);
+      else if (spec.type === "text") {
+        if (typeof v !== "string") err("game.json", `${where}: rule '${path}' must be text (got ${JSON.stringify(v)})`);
+        else if (path === "hero.ability_default" && abilityIds && v !== "" && !abilityIds.includes(v)) err("game.json", `${where}: rule '${path}' = '${v}' is not an ability in abilities.json`);
+      } else if (spec.type === "choice") {
+        if (!spec.options.includes(v)) err("game.json", `${where}: rule '${path}' must be one of ${spec.options.join(", ")} (got ${JSON.stringify(v)})`);
+      } else if (spec.type === "list") {
+        const ok = Array.isArray(v) && (spec.length === null || v.length === spec.length) && v.every(x => isNum(x) && spec.min <= x && x <= spec.max);
+        if (!ok) err("game.json", `${where}: rule '${path}' must be a list of ${spec.length !== null ? spec.length : "any number of"} numbers between ${spec.min} and ${spec.max}`);
+      } else if (spec.type === "budget") {
+        if (!isObj(v)) err("game.json", `${where}: rule '${path}' must be an object of lanes`);
+        else for (const [lane, rows] of Object.entries(v)) {
+          if (!(lane in spec.default)) { err("game.json", `${where}: rule '${path}': unknown lane '${lane}'`); continue; }
+          let good = Array.isArray(rows) && rows.length > 0 && rows.every(r => Array.isArray(r) && r.length === 2 && r.every(isNum) && r[0] >= 1 && spec.min <= r[1] && r[1] <= spec.max);
+          if (good) for (let i = 0; i < rows.length - 1; i++) if (rows[i][0] >= rows[i + 1][0]) good = false;
+          if (!good) err("game.json", `${where}: rule '${path}.${lane}' must be rows of [wave, number] with the waves increasing`);
+        }
+      } else if (spec.type === "stats") {
+        if (!isObj(v)) err("game.json", `${where}: rule '${path}' must be an object of stat: number`);
+        else for (const [sk, sv] of Object.entries(v)) {
+          if (!C.stats.includes(sk)) err("game.json", `${where}: rule '${path}': unknown stat '${sk}'`);
+          else if (!isNum(sv)) err("game.json", `${where}: rule '${path}.${sk}' must be a number (got ${JSON.stringify(sv)})`);
+        }
+      } else if (!isNum(v)) err("game.json", `${where}: rule '${path}' must be a number (got ${JSON.stringify(v)})`);
+      else if (!(spec.min <= v && v <= spec.max)) err("game.json", `${where}: rule '${path}' = ${v} is outside ${spec.min} .. ${spec.max}`);
+      else if (Number.isInteger(spec.default) && !Number.isInteger(v)) err("game.json", `${where}: rule '${path}' must be a whole number (got ${v})`);
+    }
+  }
+}
+
+function validatePack(pack) {
+  const C = DATA.consts;
+  const errs = [];
+  const err = (where, msg) => errs.push(`${where}: ${msg}`);
+  const knobs = {};
+  for (const [a, area] of Object.entries(DATA.schema.areas)) for (const [k, v] of Object.entries(area.knobs)) knobs[`${a}.${k}`] = v;
+  const library = DATA.presets.presets;
+
+  for (const n of C.files) if (!isObj(pack[n])) err(n + ".json", "missing or not a JSON object");
+  if (errs.length) return errs;
+
+  const g = pack.game;
+  if (g.format !== 0) err("game.json", `format must be 0 (got ${JSON.stringify(g.format)})`);
+  const mods = g.modules || {};
+  for (const [m, v] of Object.entries(mods)) {
+    if (!C.modules.names.includes(m)) err("game.json", `unknown module '${m}' (the modules are: ${C.modules.names.join(", ")})`);
+    else if (typeof v !== "boolean") err("game.json", `module '${m}' must be true or false`);
+  }
+  for (const [m, needs] of Object.entries(C.modules.requires)) {
+    if (num(mods[m], true) === true) for (const need of needs) if (num(mods[need], true) === false) err("game.json", `module '${m}' needs module '${need}', which is off`);
+  }
+
+  const abilityIds = [];
+  for (const a of pack.abilities.abilities || []) {
+    const aid = a.id ?? "?";
+    abilityIds.push(aid);
+    if (!C.ability_kinds.includes(a.kind)) { err("abilities.json", `${aid}: unknown kind ${JSON.stringify(a.kind)} (the kinds are: ${C.ability_kinds.join(", ")})`); continue; }
+    for (const k of ["name", "cooldown"]) if (!(k in a)) err("abilities.json", `${aid}: missing '${k}'`);
+    if (!isNum(num(a.cooldown, 1)) || num(a.cooldown, 1) <= 0) err("abilities.json", `${aid}: cooldown must be above 0`);
+    if (!Number.isInteger(num(a.charges, 1)) || num(a.charges, 1) < 1) err("abilities.json", `${aid}: charges must be a whole number, 1 or more`);
+    for (const k of C.ability_required[a.kind]) if (!isNum(a[k]) || a[k] <= 0) err("abilities.json", `${aid}: a ${a.kind} needs '${k}' above 0`);
+    if (a.kind === "burst_heal" && !(num(a.heal, 0) > 0 || num(a.heal_pct, 0) > 0)) err("abilities.json", `${aid}: a burst_heal needs 'heal' or 'heal_pct'`);
+  }
+  if (new Set(abilityIds).size !== abilityIds.length) err("abilities.json", "an ability id appears twice");
+  checkRules("rules", g.rules ?? {}, knobs, err, C, abilityIds);
+  let presets = g.presets ?? {};
+  if (!isObj(presets)) { err("game.json", "presets must be an object of named presets"); presets = {}; }
+  for (const [name, block] of Object.entries(presets)) checkRules(`preset '${name}'`, block, knobs, err, C, abilityIds);
+  const spec = g.preset ?? "";
+  if (typeof spec !== "string") err("game.json", "preset must be a name (or names joined by +)");
+  else for (const n of spec.split("+").filter(Boolean)) if (!(n in presets) && !(n in library)) err("game.json", `preset '${n}' is not one of the pack's presets or the shared library (${Object.keys(library).join(", ")})`);
+
+  const ar = pack.arena;
+  const sz = ar.size;
+  if (!(Array.isArray(sz) && sz.length === 2 && sz.every(x => isNum(x) && x >= 500))) err("arena.json", "size must be [width, height], each at least 500");
+  if (!Array.isArray(ar.props)) err("arena.json", "props must be a list");
+  if (!isObj(num(ar.camera_margin, {}))) err("arena.json", "camera_margin must be an object");
+  else if (Array.isArray(sz) && sz.length === 2) for (const prop of ar.props || []) if (!Array.isArray(prop.parts)) err("arena.json", `prop '${prop.id}' has no parts list`);
+
+  const puppets = new Set(pack.puppets.puppets || []);
+  const powerIds = [];
+  for (const p of pack.powers.powers || []) {
+    const pid = p.id ?? "?";
+    powerIds.push(pid);
+    if (!C.shapes.includes(p.shape)) err("powers.json", `${pid}: unknown shape ${JSON.stringify(p.shape)}`);
+    if (!C.damage_types.includes(p.damage_type)) err("powers.json", `${pid}: unknown damage_type ${JSON.stringify(p.damage_type)}`);
+    for (const k of ["name", "tags"]) if (!(k in p)) err("powers.json", `${pid}: missing '${k}'`);
+    const st = (p.effect || {}).status;
+    if (st !== undefined && st !== null && !C.statuses.includes(st)) err("powers.json", `${pid}: unknown status ${JSON.stringify(st)}`);
+  }
+  if (new Set(powerIds).size !== powerIds.length) err("powers.json", "a power id appears twice");
+  const powers = new Set(powerIds);
+
+  const heroIds = [];
+  for (const h of pack.heroes.heroes || []) {
+    const hid = h.id ?? "?";
+    heroIds.push(hid);
+    if (!powers.has(h.start_power)) err("heroes.json", `${hid}: start_power ${JSON.stringify(h.start_power)} is not a power`);
+    for (const k of Object.keys(h.stats || {})) if (!C.stats.includes(k)) err("heroes.json", `${hid}: unknown stat '${k}'`);
+    if (num(h.ability, "") !== "" && !abilityIds.includes(h.ability)) err("heroes.json", `${hid}: ability ${JSON.stringify(h.ability)} is not in abilities.json`);
+    if (!puppets.has("hero_" + hid)) err("puppets.json", `hero ${hid} has no puppet 'hero_${hid}' listed`);
+  }
+  const heroes = new Set(heroIds);
+  if (heroes.size !== heroIds.length) err("heroes.json", "a hero id appears twice");
+
+  for (const table of ["weapon", "projectile_visual", "projectile_impact"]) for (const pid of Object.keys(pack.looks[table] || {})) if (!powers.has(pid)) err("looks.json", `${table}: '${pid}' is not a power`);
+
+  const en = pack.enemies;
+  const order = en.order || [], kinds = en.kinds || {};
+  const orderSet = new Set(order), kindSet = new Set(Object.keys(kinds));
+  if (orderSet.size !== kindSet.size || [...orderSet].some(x => !kindSet.has(x))) err("enemies.json", "'order' and 'kinds' must list the same ids");
+  for (const [kid, k] of Object.entries(kinds)) {
+    for (const s of ["hp", "speed", "damage", "radius", "color", "freeze_cap", "xp"]) if (!(s in (k.stats || {}))) err("enemies.json", `${kid}: stats.${s} missing`);
+    if (!C.silhouettes.includes(k.shape)) err("enemies.json", `${kid}: unknown shape ${JSON.stringify(k.shape)}`);
+    const pu = num(k.puppet, "");
+    if (pu && !puppets.has(pu)) err("enemies.json", `${kid}: puppet '${pu}' is not listed in puppets.json`);
+  }
+  for (const [kid, k] of Object.entries(kinds)) {
+    const det = num(k.detect, 0);
+    if (!isNum(det) || det < 0) err("enemies.json", `${kid}: detect must be a number, 0 or more`);
+    const mv = k.move || {};
+    const style = num(mv.style, "direct");
+    if (!C.enemy.move_styles.includes(style)) err("enemies.json", `${kid}: unknown move style '${style}' (the styles are: ${C.enemy.move_styles.join(", ")})`);
+    if ((style === "wander" || style === "lurk") && !(det > 0)) err("enemies.json", `${kid}: the ${style} style needs a detect radius above 0 (otherwise it is always aware and never idles)`);
+    if (style === "wander") {
+      if (num(mv.turn_min, 20) > num(mv.turn_max, 80) || num(mv.time_min, 0.8) > num(mv.time_max, 2.0)) err("enemies.json", `${kid}: wander needs turn_min <= turn_max and time_min <= time_max`);
+      const ws = num(mv.wander_speed, 0.4);
+      if (!(0 < ws && ws <= 1)) err("enemies.json", `${kid}: wander_speed must be above 0 and at most 1 (a share of its speed)`);
+    }
+    const at = k.attack;
+    if (at && Object.keys(at).length) {
+      if (!C.enemy.attack_types.includes(at.type)) err("enemies.json", `${kid}: unknown attack type ${JSON.stringify(at.type)} (the types are: ${C.enemy.attack_types.join(", ")}; a shooting kind uses 'ranged')`);
+      else if (at.type === "dash") for (const f of ["range", "windup", "speed", "distance", "cooldown", "damage"]) if (!isNum(at[f]) || at[f] <= 0) err("enemies.json", `${kid}: a dash attack needs '${f}' above 0`);
+      if (k.ranged && Object.keys(k.ranged).length) err("enemies.json", `${kid}: a kind has either 'ranged' or 'attack', not both`);
+    }
+    const rg = k.ranged || {};
+    if (Object.keys(rg).length) {
+      const rs = num(rg.style, "light");
+      if (!C.enemy.ranged_styles.includes(rs)) err("enemies.json", `${kid}: unknown ranged style ${JSON.stringify(rg.style)} (the styles are: ${C.enemy.ranged_styles.join(", ")})`);
+      if (["burst", "spray", "ring"].includes(rg.style) && !(Number.isInteger(rg.shots) && rg.shots >= 2)) err("enemies.json", `${kid}: a ${rg.style} needs 'shots' (a whole number, 2 or more)`);
+      if (rg.style === "bomb" && !(num(rg.blast_radius, 0) > 0 && num(rg.fuse, 0) > 0)) err("enemies.json", `${kid}: a bomb needs 'blast_radius' and 'fuse' above 0`);
+    }
+    const od = k.on_death || {};
+    if (Object.keys(od).length) {
+      if (!C.enemy.death_types.includes(od.type)) err("enemies.json", `${kid}: unknown on_death type ${JSON.stringify(od.type)} (the types are: ${C.enemy.death_types.join(", ")})`);
+      else if (od.type === "split" && !(od.into in kinds)) err("enemies.json", `${kid}: on_death split into unknown kind ${JSON.stringify(od.into)}`);
+      else if (od.type === "split" && od.into === kid) err("enemies.json", `${kid}: a kind cannot split into itself (it would never stop)`);
+      else if (od.type === "explode" && !(num(od.radius, 0) > 0 && num(od.damage, 0) > 0)) err("enemies.json", `${kid}: an explosion needs 'radius' and 'damage' above 0`);
+      else if (od.type === "drop" && !(Number.isInteger(od.stars) && od.stars >= 1)) err("enemies.json", `${kid}: a drop needs 'stars' (a whole number, 1 or more)`);
+    }
+    const el = k.elite || {};
+    if (Object.keys(el).length) {
+      if (!(0 < num(el.chance, 0) && num(el.chance, 0) <= 1)) err("enemies.json", `${kid}: elite chance must be above 0 and at most 1`);
+      for (const f of ["hp_mult", "damage_mult", "speed_mult", "size", "xp_mult", "drop_mult"]) if (f in el && !(isNum(el[f]) && el[f] > 0)) err("enemies.json", `${kid}: elite ${f} must be above 0`);
+    }
+    const tr = k.traits || {};
+    for (const [tk, tv] of Object.entries(tr)) {
+      if (!C.enemy.trait_keys.includes(tk)) err("enemies.json", `${kid}: unknown trait '${tk}' (the traits are: ${C.enemy.trait_keys.join(", ")})`);
+      else if (!isNum(tv) || tv < 0) err("enemies.json", `${kid}: trait '${tk}' must be a number, 0 or more`);
+    }
+    if (!(0 <= num(tr.knockback_resist, 0) && num(tr.knockback_resist, 0) <= 1)) err("enemies.json", `${kid}: knockback_resist must be between 0 and 1`);
+    if (!(0 <= num(tr.enrage_at, 0) && num(tr.enrage_at, 0) <= 1)) err("enemies.json", `${kid}: enrage_at must be between 0 and 1 (a fraction of its health)`);
+  }
+  if (order.length && order[order.length - 1] !== "wanted") err("enemies.json", "the last kind must be the villain placeholder 'wanted'");
+  const sp = en.spawn || {};
+  const wts = sp.weights || [];
+  for (const rule of wts) {
+    if (!(rule.kind in kinds) || rule.kind === "wanted") err("enemies.json", `spawn.weights: unknown kind ${JSON.stringify(rule.kind)}`);
+    if (!(isNum(rule.weight) && rule.weight > 0)) err("enemies.json", `spawn.weights: ${rule.kind}: weight must be above 0`);
+    if (num(rule.from, 1) > num(rule.to, 9999)) err("enemies.json", `spawn.weights: ${rule.kind}: from must not be above to`);
+  }
+  if (wts.length && (sp.roll || []).length) err("enemies.json", "spawn has both 'weights' and 'roll': use one (keep roll empty when using weights)");
+  for (const rule of sp.roll || []) if (!(rule.kind in kinds)) err("enemies.json", `spawn.roll: unknown kind ${JSON.stringify(rule.kind)}`);
+  if (!(sp.default in kinds)) err("enemies.json", "spawn.default is not a kind");
+  for (const key of ["early_shooter", "pack"]) { const blk = sp[key] || {}; if (Object.keys(blk).length && !(blk.kind in kinds)) err("enemies.json", `spawn.${key}: unknown kind ${JSON.stringify(blk.kind)}`); }
+
+  const bossIds = [];
+  for (const b of pack.bosses.bosses || []) {
+    const bid = b.id ?? "?";
+    bossIds.push(bid);
+    if (!powers.has(b.signature)) err("bosses.json", `${bid}: signature ${JSON.stringify(b.signature)} is not a power`);
+    if (!C.silhouettes.includes(b.shape)) err("bosses.json", `${bid}: unknown shape ${JSON.stringify(b.shape)}`);
+    for (const a of b.abilities || []) {
+      if (!C.boss_abilities.includes(a.name)) err("bosses.json", `${bid}: unknown ability ${JSON.stringify(a.name)}`);
+      if (a.name === "summon" && !(a.add in kinds)) err("bosses.json", `${bid}: summon adds unknown kind ${JSON.stringify(a.add)}`);
+    }
+  }
+
+  const ge = pack.gear;
+  const setIds = new Set(Object.keys(ge.sets || {}));
+  for (const [sid, s] of Object.entries(ge.sets || {})) {
+    for (const slot of ge.slots || []) {
+      const piece = (s.pieces || {})[slot];
+      if (!piece) { err("gear.json", `${sid}: no piece for slot '${slot}'`); continue; }
+      for (const k of Object.keys(piece.mods || {})) if (!C.stats.includes(k)) err("gear.json", `${sid}/${slot}: unknown stat '${k}'`);
+    }
+    for (const bonus of ["b2", "b3", "b4"]) for (const k of Object.keys(s[bonus] || {})) if (!C.stats.includes(k)) err("gear.json", `${sid}.${bonus}: unknown stat '${k}'`);
+  }
+  for (const t of pack.talents.talents || []) if (!C.stats.includes(t.stat)) err("talents.json", `${t.name}: unknown stat ${JSON.stringify(t.stat)}`);
+
+  const ac = pack.achievements;
+  const recipeKeys = new Set(Object.keys(pack.fusion.recipes || {}));
+  const cats = { archetypes: heroes, powers, gear_sets: setIds, fusion_recipes: recipeKeys };
+  for (const [cat, ids] of Object.entries(ac.starters || {})) {
+    if (!(cat in cats)) { err("achievements.json", `starters: unknown category '${cat}'`); continue; }
+    for (const i of ids) if (!cats[cat].has(i)) err("achievements.json", `starters.${cat}: '${i}' does not exist`);
+  }
+  for (const a of ac.achievements || []) {
+    for (const r of a.rewards || []) {
+      if (!C.reward_categories.includes(r.category)) err("achievements.json", `${a.id}: unknown reward category ${JSON.stringify(r.category)}`);
+      else if (!cats[r.category].has(r.id)) err("achievements.json", `${a.id}: reward ${r.category}/${r.id} does not exist`);
+    }
+    const c = a.cond || {};
+    if (c.type === "villain" && !bossIds.includes(c.villain)) err("achievements.json", `${a.id}: villain ${JSON.stringify(c.villain)} is not a boss`);
+    if (c.type === "wave" && c.archetype && !heroes.has(c.archetype)) err("achievements.json", `${a.id}: archetype '${c.archetype}' is not a hero`);
+  }
+  for (const key of Object.keys(pack.fusion.recipes || {})) {
+    const parts = key.split("+");
+    const sorted = [...parts].sort();
+    if (parts.length !== 2 || parts.join("+") !== sorted.join("+")) err("fusion.json", `recipe key '${key}' must be two power ids joined by '+', in alphabetical order`);
+    else for (const p of parts) if (!powers.has(p)) err("fusion.json", `recipe ${key}: '${p}' is not a power`);
+  }
+  for (const pid of Object.keys(pack.fusion.fragments || {})) if (!powers.has(pid)) err("fusion.json", `fragments: '${pid}' is not a power`);
+  for (const hid of Object.keys(pack.hero_effects.profiles || {})) if (!heroes.has(hid)) err("hero_effects.json", `profile for '${hid}' which is not a hero`);
+  for (const [hid, sid] of Object.entries(pack.shop.own_set || {})) {
+    if (!heroes.has(hid)) err("shop.json", `own_set: '${hid}' is not a hero`);
+    if (!setIds.has(sid)) err("shop.json", `own_set: '${sid}' is not a gear set`);
+  }
+  return errs;
+}
+
+/* Survivorator Studio: the editor for game packs (packs/<game>/*.json). Everything is saved to Firestore (packs/<pack>/files/<name> = {json, updated, by}); tools/studio/sync_pack.py moves it to and from the repo files the game reads. */
+
+// ---------------------------------------------------------------- small helpers
+// append() that also takes arrays of nodes (what the form builders return) and skips null / false, so conditional pieces can just be passed in
+const _nativeAppend = Element.prototype.append;
+Element.prototype.append = function (...kids) { return _nativeAppend.apply(this, kids.flat(Infinity).filter(k => k !== null && k !== undefined && k !== false)); };
+const C = DATA.consts;
+const $ = (s, r = document) => r.querySelector(s);
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === false || v === null || v === undefined) continue;
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (k === "value") e.value = v;
+    else if (k === "checked") e.checked = !!v;
+    else if (k === "html") e.innerHTML = v;
+    else e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat(Infinity)) if (kid !== null && kid !== undefined && kid !== false) e.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  return e;
+}
+const clone = x => JSON.parse(JSON.stringify(x));
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const isObjV = x => x !== null && typeof x === "object" && !Array.isArray(x);
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+function toast(msg, ms = 3500) { const t = h("div", { class: "toast" }, msg); document.body.append(t); setTimeout(() => t.remove(), ms); }
+
+// in-page dialogs (the browser's own prompt() and confirm() are blocked in some browsers and embedded views)
+function ask(msg, def = "") {
+  return new Promise(res => {
+    const input = h("input", { type: "text", style: "width:100%", value: def });
+    const done = v => { ov.remove(); res(v); };
+    const ov = h("div", { class: "modal" }, h("div", { class: "dlg" }, h("p", {}, msg), input, h("div", { class: "ctl", style: "margin-top:12px" }, h("button", { class: "btn primary", onclick: async () => done(input.value) }, "OK"), h("button", { class: "btn", onclick: async () => done(null) }, "Cancel"))));
+    input.addEventListener("keydown", e => { if (e.key === "Enter") done(input.value); if (e.key === "Escape") done(null); });
+    document.body.append(ov); input.focus(); input.select();
+  });
+}
+function sure(msg) {
+  return new Promise(res => {
+    const done = v => { ov.remove(); res(v); };
+    const ov = h("div", { class: "modal" }, h("div", { class: "dlg" }, h("p", {}, msg), h("div", { class: "ctl", style: "margin-top:12px" }, h("button", { class: "btn primary", onclick: async () => done(true) }, "Yes"), h("button", { class: "btn", onclick: async () => done(false) }, "No"))));
+    document.body.append(ov);
+  });
+}
+function slug(s) { return String(s).toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, ""); }
+
+// ---------------------------------------------------------------- state
+const S = {
+  pack: null, packs: [], files: {}, orig: {}, meta: {}, dirty: new Set(), tab: "overview", problems: [], user: "", sel: {}, unsub: null,
+  fire: { db: null, ready: false },
+};
+S.user = localStorage.getItem("studio_who") || "";
+
+const TABS = [
+  ["overview", "Overview", ""], ["rules", "Rules", "game"], ["presets", "Presets", "game"],
+  ["enemies", "Enemies", "enemies"], ["abilities", "Abilities", "abilities"], ["content", "All content", ""], ["problems", "Problems", ""],
+];
+
+// ---------------------------------------------------------------- firebase
+const app = initializeApp(DATA.firebase);
+const auth = getAuth(app);
+const db = getFirestore(app);
+S.fire.db = db;
+
+async function signIn() {
+  await signInAnonymously(auth);
+  await new Promise(res => { const u = onAuthStateChanged(auth, user => { if (user) { u(); res(); } }); });
+  S.fire.ready = true;
+}
+
+async function listPacks() {
+  const snap = await getDocs(collection(db, "packs"));
+  S.packs = snap.docs.map(d => d.id).sort();
+}
+
+async function loadPack(name) {
+  if (S.unsub) { S.unsub(); S.unsub = null; }
+  S.pack = name;
+  S.files = {}; S.orig = {}; S.meta = {}; S.dirty.clear(); S.sel = {};
+  const snap = await getDocs(collection(db, "packs", name, "files"));
+  for (const d of snap.docs) ingest(d);
+  localStorage.setItem("studio_pack", name);
+  revalidate(); renderAll();
+  S.unsub = onSnapshot(collection(db, "packs", name, "files"), snap2 => {
+    let changed = false;
+    for (const ch of snap2.docChanges()) {
+      const d = ch.doc;
+      if (d.metadata.hasPendingWrites) continue;
+      const by = d.data().by;
+      if (S.dirty.has(d.id) || S.orig[d.id] === d.data().json) continue;
+      ingest(d); changed = true;
+      if (by && by !== S.user) toast(`${by} saved ${d.id}.json`);
+    }
+    if (changed) { revalidate(); renderAll(); }
+  });
+}
+
+function ingest(d) {
+  const data = d.data();
+  try { S.files[d.id] = JSON.parse(data.json); S.orig[d.id] = data.json; S.meta[d.id] = { by: data.by || "", updated: data.updated && data.updated.toDate ? data.updated.toDate() : null }; }
+  catch (e) { toast(`${d.id}.json in the cloud is not valid JSON`); }
+}
+
+async function saveAll() {
+  if (!S.dirty.size) return;
+  const names = [...S.dirty];
+  for (const n of names) {
+    const text = serialize(S.files[n]);
+    const payload = { json: text, updated: serverTimestamp(), by: S.user || "someone" };
+    await setDoc(doc(db, "packs", S.pack, "files", n), payload);
+    try { await addDoc(collection(db, "packs", S.pack, "files", n, "history"), payload); } catch (e) { /* history is a nicety */ }
+    S.orig[n] = text;
+    S.dirty.delete(n);
+  }
+  await setDoc(doc(db, "packs", S.pack), { name: S.pack, updated: serverTimestamp() });
+  updateChrome();
+  toast(`Saved ${names.length} file${names.length > 1 ? "s" : ""} (${names.join(", ")}). To use it in the game: py tools/studio/sync_pack.py pull ${S.pack}`, 6000);
+}
+
+async function newPack() {
+  const name = slug(await ask("Name for the new pack (letters, numbers, underscores). It starts as a copy of " + S.pack + ":") || "");
+  if (!name) return;
+  if (S.packs.includes(name)) { toast("A pack with that name already exists"); return; }
+  for (const [n, f] of Object.entries(S.files)) await setDoc(doc(db, "packs", name, "files", n), { json: serialize(f), updated: serverTimestamp(), by: S.user || "someone" });
+  await setDoc(doc(db, "packs", name), { name, updated: serverTimestamp() });
+  await listPacks(); renderPackSelect(); await loadPack(name); renderPackSelect();
+}
+
+// A document in Firestore can hold at most 1 MiB: big files (the arena art) are stored compact, the rest indented so they read well.
+function serialize(file) {
+  const pretty = JSON.stringify(file, null, "	");
+  return pretty.length > 600000 ? JSON.stringify(file) : pretty;
+}
+
+// ---------------------------------------------------------------- dirty + validation
+function ids(file, list) { return ((S.files[file] || {})[list] || []).map(x => x.id).filter(Boolean); }
+const revalidate = debounce(() => { runValidation(); updateChrome(); if (S.tab === "problems") renderMain(); }, 150);
+function runValidation() {
+  try { S.problems = validatePack(S.files); } catch (e) { S.problems = ["validator: " + e.message]; }
+}
+function touch(file) { S.dirty.add(file); revalidate(); updateChrome(); }
+function problemsFor(file, needle) { return S.problems.filter(p => p.startsWith(file + ".json:") && (!needle || p.includes(needle))); }
+function problemBlock(list) { return list.length ? h("ul", { class: "problems" }, list.map(p => h("li", {}, h("b", {}, "⚠ "), p.replace(/^[a-z_]+\.json: /, "")))) : h("span", {}); }
+
+// ---------------------------------------------------------------- field builders (each edits obj[key] in place and calls touch(file))
+function row(label, ctl, hint, changed) {
+  return h("div", { class: "row" + (changed ? " changed" : "") }, h("label", {}, label), h("div", {}, h("div", { class: "ctl" }, ctl), hint ? h("div", { class: "hint" }, hint) : null));
+}
+function numField(obj, key, file, o = {}) {
+  const input = h("input", { type: "number", step: o.step ?? (o.integer ? 1 : "any"), min: o.min, max: o.max, placeholder: o.def !== undefined ? String(o.def) : "" });
+  if (obj[key] !== undefined) input.value = obj[key];
+  input.addEventListener("change", () => {
+    if (input.value === "") { if (o.optional || o.def !== undefined) delete obj[key]; }
+    else { let v = Number(input.value); if (o.integer) v = Math.round(v); obj[key] = v; }
+    touch(file); if (o.after) o.after();
+  });
+  return input;
+}
+function textField(obj, key, file, o = {}) {
+  const input = h("input", { type: "text", placeholder: o.placeholder || "", list: o.list });
+  input.value = obj[key] ?? "";
+  input.addEventListener("change", () => { if (input.value === "" && o.optional) delete obj[key]; else obj[key] = input.value; touch(file); if (o.after) o.after(); });
+  return input;
+}
+function selectField(obj, key, file, options, o = {}) {
+  const sel = h("select", {});
+  if (o.optional) sel.append(h("option", { value: "" }, o.emptyLabel || "(none)"));
+  for (const opt of options) { const [v, l] = Array.isArray(opt) ? opt : [opt, opt]; sel.append(h("option", { value: v }, l)); }
+  const cur = obj[key] ?? "";
+  if (cur !== "" && !options.some(x => (Array.isArray(x) ? x[0] : x) === cur)) sel.append(h("option", { value: cur }, cur + " (unknown)"));
+  sel.value = cur;
+  sel.addEventListener("change", () => { if (sel.value === "" && o.optional) delete obj[key]; else obj[key] = sel.value; touch(file); if (o.after) o.after(); });
+  return sel;
+}
+function boolField(obj, key, file, o = {}) {
+  const c = h("input", { type: "checkbox", checked: !!obj[key] });
+  c.addEventListener("change", () => { if (c.checked) obj[key] = true; else if (o.optional) delete obj[key]; else obj[key] = false; touch(file); if (o.after) o.after(); });
+  return c;
+}
+function colorField(obj, key, file, o = {}) {
+  const c = h("input", { type: "color", value: /^#[0-9a-f]{6}$/i.test(obj[key] || "") ? obj[key] : "#ffffff" });
+  c.addEventListener("change", () => { obj[key] = c.value; touch(file); if (o.after) o.after(); });
+  const clear = o.optional ? h("button", { class: "btn small", onclick: async () => { delete obj[key]; touch(file); if (o.after) o.after(); else renderMain(); } }, "none") : null;
+  return [c, obj[key] ? h("span", { class: "dim" }, obj[key]) : h("span", { class: "dim" }, "(none)"), clear];
+}
+
+// ---------------------------------------------------------------- rules editor
+function ensureArea(rules, area) { if (!isObjV(rules[area])) rules[area] = {}; return rules[area]; }
+function cleanRules(rules) { for (const a of Object.keys(rules)) if (isObjV(rules[a]) && !Object.keys(rules[a]).length) delete rules[a]; }
+
+function rulesEditor(rules, file, opts = {}) {
+  const wrap = h("div", {});
+  const filter = h("input", { type: "text", placeholder: "filter knobs…", style: "margin-bottom:10px;width:260px" });
+  const body = h("div", {});
+  wrap.append(filter, body);
+  const draw = () => {
+    body.innerHTML = "";
+    const q = filter.value.trim().toLowerCase();
+    for (const [area, def] of Object.entries(DATA.schema.areas)) {
+      const rows = [];
+      for (const [knob, spec] of Object.entries(def.knobs)) {
+        if (q && !(`${area}.${knob} ${spec.label} ${spec.desc}`.toLowerCase().includes(q))) continue;
+        rows.push(knobRow(rules, area, knob, spec, file, draw));
+      }
+      if (!rows.length) continue;
+      const set = Object.keys(rules[area] || {}).length;
+      body.append(h("details", { class: "card", open: q || set ? true : undefined }, h("summary", {}, def.label, h("span", { class: "dim" }, `  ·  ${rows.length} knobs${set ? `, ${set} changed` : ""}`)), rows));
+    }
+  };
+  filter.addEventListener("input", draw);
+  draw();
+  return wrap;
+}
+
+function knobRow(rules, area, knob, spec, file, redraw) {
+  const path = `${area}.${knob}`;
+  const cur = (rules[area] || {})[knob];
+  const isSet = cur !== undefined;
+  const set = v => { ensureArea(rules, area)[knob] = v; touch(file); };
+  const reset = () => { if (rules[area]) delete rules[area][knob]; cleanRules(rules); touch(file); redraw(); };
+  const ctl = [];
+  const unit = spec.unit ? h("span", { class: "unit" }, spec.unit) : null;
+  if (spec.type === "choice") {
+    const sel = h("select", {}, spec.options.map(o => h("option", { value: o }, o + (o === spec.default ? "  (default)" : ""))));
+    sel.value = isSet ? cur : spec.default;
+    sel.addEventListener("change", () => { set(sel.value); redraw(); });
+    ctl.push(sel);
+  } else if (spec.type === "text") {
+    const list = path === "hero.ability_default" ? "abilityIds" : undefined;
+    const t = h("input", { type: "text", list, placeholder: String(spec.default) });
+    t.value = isSet ? cur : "";
+    t.addEventListener("change", () => { if (t.value === "") { reset(); return; } set(t.value); redraw(); });
+    ctl.push(t);
+  } else if (spec.type === "list") {
+    const vals = isSet ? cur : spec.default;
+    const t = h("input", { type: "text", style: "width:320px" });
+    t.value = vals.join(", ");
+    t.addEventListener("change", () => { const v = t.value.split(",").map(s => s.trim()).filter(s => s !== "").map(Number); if (v.some(Number.isNaN)) { t.classList.add("bad"); return; } t.classList.remove("bad"); set(v); redraw(); });
+    ctl.push(t, h("span", { class: "unit" }, spec.length ? `${spec.length} numbers` : "numbers, comma separated"));
+  } else if (spec.type === "stats") {
+    const m = isSet ? cur : {};
+    const box = h("div", {});
+    for (const [k, v] of Object.entries(m)) {
+      const vi = h("input", { type: "number", step: "any", value: v });
+      vi.addEventListener("change", () => { m[k] = Number(vi.value); set(m); });
+      box.append(h("div", { class: "ctl", style: "margin-bottom:4px" }, h("span", { style: "min-width:150px" }, k), vi, h("button", { class: "btn small", onclick: async () => { delete m[k]; if (Object.keys(m).length) set(m); else reset(); redraw(); } }, "✕")));
+    }
+    const add = h("select", {}, h("option", { value: "" }, "+ add a stat…"), C.stats.filter(s => !(s in m)).map(s => h("option", { value: s }, s)));
+    add.addEventListener("change", () => { if (add.value) { m[add.value] = 0; set(m); redraw(); } });
+    box.append(add);
+    ctl.push(box);
+  } else if (spec.type === "budget") {
+    const m = isSet ? cur : {};
+    const box = h("div", {});
+    for (const lane of Object.keys(spec.default)) {
+      const rowsData = m[lane] ?? spec.default[lane];
+      const overridden = lane in m;
+      const t = h("input", { type: "text", style: "width:560px", value: rowsData.map(r => r.join(":")).join("  ") });
+      t.addEventListener("change", () => {
+        const parsed = t.value.trim().split(/\s+/).filter(Boolean).map(p => p.split(":").map(Number));
+        if (parsed.some(r => r.length !== 2 || r.some(Number.isNaN))) { t.classList.add("bad"); return; }
+        t.classList.remove("bad"); m[lane] = parsed; set(m); redraw();
+      });
+      box.append(h("div", { class: "ctl", style: "margin-bottom:4px" }, h("b", { style: "min-width:60px" }, lane), t, overridden ? h("button", { class: "btn small", onclick: async () => { delete m[lane]; if (Object.keys(m).length) set(m); else reset(); redraw(); } }, "↺ default") : h("span", { class: "unit" }, "default")));
+    }
+    box.append(h("div", { class: "hint" }, "rows are wave:drops, like 1:0.004  5:0.1  10:0.35"));
+    ctl.push(box);
+  } else {
+    const n = numField({ [knob]: cur }, knob, file, { min: spec.min, max: spec.max, def: spec.default, integer: Number.isInteger(spec.default), step: Number.isInteger(spec.default) ? 1 : "any" });
+    n.value = isSet ? cur : "";
+    n.placeholder = String(spec.default);
+    n.addEventListener("change", () => { if (n.value === "") { reset(); return; } const v = Number(n.value); set(Number.isInteger(spec.default) ? Math.round(v) : v); redraw(); });
+    ctl.push(n, unit, h("span", { class: "unit" }, `default ${spec.default} · ${spec.min} to ${spec.max}`));
+  }
+  if (isSet) ctl.push(h("button", { class: "btn small", title: "Back to the default", onclick: reset }, "↺"));
+  return row(spec.label + "  ", ctl, spec.desc, isSet);
+}
+
+// ---------------------------------------------------------------- tabs
+function renderAll() { renderPackSelect(); renderNav(); renderMain(); updateChrome(); }
+function renderPackSelect() {
+  const sel = $("#packSelect");
+  sel.innerHTML = "";
+  for (const p of S.packs) sel.append(h("option", { value: p }, p));
+  sel.value = S.pack || "";
+}
+function renderNav() {
+  const nav = $("#nav"); nav.innerHTML = "";
+  for (const [id, label] of TABS) {
+    const b = h("button", { class: S.tab === id ? "on" : "", onclick: async () => { S.tab = id; renderNav(); renderMain(); } }, h("span", {}, label), id === "problems" && S.problems.length ? h("span", { class: "badge" }, S.problems.length) : null);
+    nav.append(b);
+  }
+}
+function updateChrome() {
+  $("#whoBtn").textContent = S.user ? "👤 " + S.user : "👤 set your name";
+  const pc = $("#problemChip");
+  pc.textContent = S.problems.length ? `⚠ ${S.problems.length} problem${S.problems.length > 1 ? "s" : ""}` : "✓ no problems";
+  pc.className = "chip " + (S.problems.length ? "bad" : "ok");
+  const sc = $("#saveChip");
+  sc.textContent = S.dirty.size ? `● ${S.dirty.size} unsaved (${[...S.dirty].join(", ")})` : "✓ all saved";
+  sc.className = "chip " + (S.dirty.size ? "warn" : "ok");
+  $("#saveBtn").disabled = !S.dirty.size;
+  renderNav();
+}
+function renderMain() {
+  const m = $("#main");
+  const y = m.scrollTop;
+  m.innerHTML = "";
+  if (!S.pack) { m.append(h("p", { class: "lead" }, "No pack loaded.")); return; }
+  const fn = { overview: tabOverview, rules: tabRules, presets: tabPresets, enemies: tabEnemies, abilities: tabAbilities, content: tabContent, problems: tabProblems }[S.tab];
+  m.append(h("datalist", { id: "abilityIds" }, ids("abilities", "abilities").map(i => h("option", { value: i }))));
+  m.append(fn());
+  m.scrollTop = y;
+}
+
+// ---- overview
+function tabOverview() {
+  const g = S.files.game;
+  const wrap = h("div", {});
+  wrap.append(h("h2", {}, "Game: " + (g.name || g.id)), h("p", { class: "lead" }, "A game pack is the content and rules of one game. Edit here, press Save, then bring it into the game's folder with the sync script (shown after each save). The game never needs the internet."));
+  wrap.append(h("h3", {}, "Identity"), row("Name", textField(g, "name", "game", { after: renderNav })), row("Id", textField(g, "id", "game")));
+  wrap.append(h("h3", {}, "Modules (mechanics this game uses)"));
+  const mods = (g.modules = g.modules || {});
+  const grid = h("div", { class: "mods" });
+  const desc = { level_up_choice: "pick one of several cards on a level-up", shop: "the between-wave shop", boss: "a boss every few waves", loot: "dropped gear, powers and fusion charges", classes: "hero classes and the select screen", equipment: "gear pieces and sets", talents: "stat boosts from levelling", fusion: "fusing powers", coop: "a second hero on one screen", achievements: "achievements and unlocks", profile: "save slots and progress", recorder: "the playtest recorder", abilities: "the hero ability button (dash / roll ...)" };
+  const eff = n => { const on = mods[n] !== false; return on && (C.modules.requires[n] || []).every(r => mods[r] !== false); };
+  for (const n of C.modules.names) {
+    const need = C.modules.requires[n];
+    const c = h("input", { type: "checkbox", checked: mods[n] !== false });
+    c.addEventListener("change", () => { mods[n] = c.checked; touch("game"); renderMain(); });
+    grid.append(h("label", { class: "mod" + (eff(n) ? "" : " off") }, c, h("span", {}, h("b", {}, n), h("small", {}, desc[n] || ""), need ? h("small", {}, "needs: " + need.join(", ") + (eff(n) || mods[n] === false ? "" : "  → OFF because of that")) : null)));
+  }
+  wrap.append(grid);
+  const counts = [["heroes", ids("heroes", "heroes").length], ["powers", ids("powers", "powers").length], ["enemy kinds", (S.files.enemies.order || []).length - 1], ["abilities", ids("abilities", "abilities").length], ["bosses", ids("bosses", "bosses").length], ["rules changed", Object.values(g.rules || {}).reduce((a, x) => a + Object.keys(x).length, 0)], ["presets on", (g.preset || "none")]];
+  wrap.append(h("h3", {}, "At a glance"), h("div", { class: "kv" }, counts.flatMap(([k, v]) => [h("b", {}, k), h("span", {}, String(v))])));
+  const who = Object.entries(S.meta).map(([n, m]) => ({ n, ...m })).filter(x => x.updated).sort((a, b) => b.updated - a.updated)[0];
+  if (who) wrap.append(h("p", { class: "dim" }, `Last saved: ${who.n}.json by ${who.by || "?"}, ${who.updated.toLocaleString()}`));
+  return wrap;
+}
+
+// ---- rules
+function tabRules() {
+  const g = S.files.game;
+  g.rules = g.rules || {};
+  return h("div", {}, h("h2", {}, "Rules"), h("p", { class: "lead" }, "The numbers that set how this game feels. A dot marks a knob you changed from the default; ↺ puts it back. Presets (next tab) can override these on top."), rulesEditor(g.rules, "game"));
+}
+
+// ---- presets
+function tabPresets() {
+  const g = S.files.game;
+  g.presets = g.presets || {};
+  const lib = DATA.presets.presets;
+  const active = (g.preset || "").split("+").filter(Boolean);
+  const wrap = h("div", {}, h("h2", {}, "Presets"), h("p", { class: "lead" }, "A preset is a named bundle of rule overrides. Switch several on and a later one wins where they overlap. The library is shared by every game; a pack can also have its own."));
+  const setActive = list => { g.preset = list.join("+"); touch("game"); renderMain(); };
+  wrap.append(h("h3", {}, "Switched on (in order)"), h("div", { class: "ctl" }, active.length ? active.map((n, i) => h("span", { class: "tag" }, n, " ", i > 0 ? h("a", { href: "#", onclick: async e => { e.preventDefault(); const a = [...active]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; setActive(a); } }, "◀") : null, h("a", { href: "#", onclick: async e => { e.preventDefault(); setActive(active.filter(x => x !== n)); } }, " ✕"))) : h("span", { class: "dim" }, "none (the defaults)")));
+  const all = [...Object.keys(lib).map(n => [n, "library"]), ...Object.keys(g.presets).map(n => [n, "this pack"])];
+  wrap.append(h("h3", {}, "Available"));
+  for (const [n, where] of all) {
+    const entry = where === "library" ? lib[n] : null;
+    const on = active.includes(n);
+    wrap.append(h("div", { class: "card" }, h("div", { class: "ctl" }, h("b", {}, entry ? entry.label : n), h("span", { class: "tag" }, where), h("span", { class: "dim" }, entry ? entry.desc : "your own preset"), h("span", { style: "flex:1" }),
+      h("button", { class: "btn small", onclick: async () => setActive(on ? active.filter(x => x !== n) : [...active, n]) }, on ? "Switch off" : "Switch on"),
+      entry ? h("button", { class: "btn small", title: "Copy into this pack as your own editable preset", onclick: async () => { g.presets[n] = clone(entry.rules); touch("game"); renderMain(); } }, "Copy to pack") : h("button", { class: "btn small danger", onclick: async () => { if (await sure(`Delete the pack preset '${n}'?`)) { delete g.presets[n]; setActive(active.filter(x => x !== n)); } } }, "Delete")),
+      entry ? h("details", {}, h("summary", { class: "dim" }, "what it changes"), h("pre", { class: "dim", style: "font-size:12px" }, Object.entries(entry.rules).map(([a, v]) => Object.entries(v).map(([k, x]) => `${a}.${k} = ${JSON.stringify(x)}`).join("\n")).join("\n") || "(nothing)")) : h("details", { open: true }, h("summary", { class: "dim" }, "edit"), rulesEditor(g.presets[n], "game"))));
+  }
+  const nameIn = h("input", { type: "text", placeholder: "new preset name" });
+  wrap.append(h("h3", {}, "New pack preset"), h("div", { class: "ctl" }, nameIn, h("button", { class: "btn", onclick: async () => { const n = slug(nameIn.value); if (!n) return; if (g.presets[n] || lib[n]) { toast("That name is taken"); return; } g.presets[n] = {}; touch("game"); renderMain(); } }, "Create")));
+  wrap.append(problemBlock(problemsFor("game", "preset")));
+  return wrap;
+}
+
+// ---- enemies
+const MOVE_PARAMS = {
+  direct: [], wander: [["turn_min", 20, "degrees"], ["turn_max", 80, "degrees"], ["time_min", 0.8, "s"], ["time_max", 2.2, "s"], ["wander_speed", 0.35, "x its speed"], ["lose_secs", 3, "s"]],
+  lurk: [["lose_secs", 3, "s"]], zigzag: [["amplitude", 35, "degrees"], ["period", 1.2, "s"]], keep_distance: [["distance", 260, "px"]],
+  orbit: [["distance", 220, "px"], ["orbit_secs", 2.5, "s"], ["dive_secs", 0.7, "s"], ["dive_speed", 1.8, "x its speed"]],
+};
+const MOVE_HELP = { direct: "walks straight at the nearest hero", wander: "ambles in random turns until it notices a hero (needs a notice radius)", lurk: "stands still until a hero comes close (needs a notice radius)", zigzag: "weaves side to side while chasing", keep_distance: "backs off, closes in or strafes to hold a distance (good for shooters)", orbit: "circles the hero, then dives at them" };
+const DASH_PARAMS = [["range", 280, "px: starts when a hero is this close"], ["windup", 0.6, "s: stands still, red line shown"], ["speed", 560, "px/s"], ["distance", 320, "px"], ["cooldown", 3.5, "s between dashes"], ["damage", 14, "hit on the hero"], ["recover", 0.5, "s resting after"]];
+const RANGED_BASE = [["attack_range", 340, "px"], ["lock_range", 300, "px: stops wandering and rushes inside this"], ["windup", 0.7, "s aiming"], ["cooldown", 2, "s between volleys"], ["bullet_speed", 360, "px/s"], ["bullet_dmg", 6, ""], ["bullet_radius", 9, "px"], ["bullet_range", 520, "px"], ["amble_frac", 0.5, "x speed while wandering in"]];
+const RANGED_EXTRA = { burst: [["shots", 3, "bullets", true], ["burst_gap", 0.12, "s"]], spray: [["shots", 5, "bullets", true], ["spread", 50, "degrees"]], ring: [["shots", 8, "bullets", true]], bomb: [["fuse", 1.2, "s"], ["blast_radius", 100, "px"]], light: [], heavy: [] };
+const TRAIT_DEFS = [["armor", 0, "each hit does this much less (min 10%)"], ["knockback_resist", 0, "0 to 1: share of every shove ignored"], ["regen", 0, "health per second"], ["enrage_at", 0, "fraction of health (0.3 = at 30%)"], ["enrage_speed", 1.5, "x speed once enraged"]];
+const ELITE_DEFAULT = { chance: 0.1, from_wave: 3, hp_mult: 2.5, damage_mult: 1.5, speed_mult: 1.1, size: 1.25, xp_mult: 3, drop_mult: 2 };
+const NEW_KIND = () => ({ stats: { hp: 12, speed: 70, damage: 5, radius: 12, color: "#cc6666", freeze_cap: 3, xp: 3 }, shape: "thug", art_height: 89, puppet: "grunt", drop_mult: 1, fame: 1 });
+
+function paramRows(obj, file, defs, after) {
+  return defs.map(([k, d, unit, integer]) => row(k, [numField(obj, k, file, { def: d, integer, optional: true, after }), h("span", { class: "unit" }, unit)], null, obj[k] !== undefined));
+}
+function selOptionsKinds(exclude) { return (S.files.enemies.order || []).filter(k => k !== "wanted" && k !== exclude); }
+
+function tabEnemies() {
+  const en = S.files.enemies;
+  const sel = S.sel.enemy && en.kinds[S.sel.enemy] ? S.sel.enemy : (en.order || [])[0];
+  S.sel.enemy = sel;
+  const wrap = h("div", {}, h("h2", {}, "Enemies"), h("p", { class: "lead" }, "Every enemy kind and how it behaves: its numbers, how it notices and moves, its special attack, traits, what happens when it dies, and how often it spawns. The last kind, 'wanted', is the boss placeholder and stays last."));
+  const list = h("div", { class: "list" });
+  for (const id of en.order) list.append(h("div", { class: "item" + (id === sel ? " on" : ""), onclick: async () => { S.sel.enemy = id; renderMain(); } }, h("span", {}, id), h("small", {}, id === "wanted" ? "boss" : (en.kinds[id].stats || {}).hp + " hp")));
+  list.append(h("div", { class: "tools" },
+    h("button", { class: "btn small", onclick: async () => { const n = slug(await ask("Id for the new enemy kind:") || ""); if (!n) return; if (en.kinds[n]) { toast("That id exists"); return; } en.kinds[n] = NEW_KIND(); en.order.splice(en.order.length - 1, 0, n); S.sel.enemy = n; touch("enemies"); renderMain(); } }, "+ New"),
+    h("button", { class: "btn small", onclick: async () => { const n = slug(await ask(`Id for the copy of ${sel}:`) || ""); if (!n || sel === "wanted") return; if (en.kinds[n]) { toast("That id exists"); return; } en.kinds[n] = clone(en.kinds[sel]); en.order.splice(en.order.indexOf(sel) + 1, 0, n); S.sel.enemy = n; touch("enemies"); renderMain(); } }, "Copy"),
+    h("button", { class: "btn small", onclick: async () => { const i = en.order.indexOf(sel); if (i > 0 && sel !== "wanted") { [en.order[i - 1], en.order[i]] = [en.order[i], en.order[i - 1]]; touch("enemies"); renderMain(); } } }, "▲"),
+    h("button", { class: "btn small", onclick: async () => { const i = en.order.indexOf(sel); if (i < en.order.length - 2 && sel !== "wanted") { [en.order[i + 1], en.order[i]] = [en.order[i], en.order[i + 1]]; touch("enemies"); renderMain(); } } }, "▼"),
+    h("button", { class: "btn small danger", onclick: async () => { if (sel === "wanted") return; if (await sure(`Delete the enemy kind '${sel}'?`)) { delete en.kinds[sel]; en.order = en.order.filter(x => x !== sel); S.sel.enemy = en.order[0]; touch("enemies"); renderMain(); } } }, "Delete")));
+  const form = h("div", {}, kindForm(en, sel));
+  wrap.append(h("div", { class: "split" }, list, form), h("h3", {}, "Spawning"), spawnEditor(en));
+  return wrap;
+}
+
+function kindForm(en, id) {
+  const k = en.kinds[id];
+  const f = "enemies";
+  const re = () => renderMain();
+  const out = h("div", {});
+  out.append(h("h3", { style: "margin-top:0" }, id), problemBlock(problemsFor("enemies", id + ":")));
+  if (id === "wanted") { out.append(h("p", { class: "lead" }, "The boss placeholder: its real numbers come from bosses.json. Only the order matters here.")); return out; }
+  const s = k.stats = k.stats || {};
+  out.append(h("details", { class: "card", open: true }, h("summary", {}, "Body and numbers"),
+    row("health", numField(s, "hp", f, { min: 1 })), row("speed", [numField(s, "speed", f, { min: 0 }), h("span", { class: "unit" }, "px/s")], "Base movement rate."), row("touch damage", numField(s, "damage", f, { min: 0 })),
+    row("body radius", [numField(s, "radius", f, { min: 4 }), h("span", { class: "unit" }, "px")]), row("xp", numField(s, "xp", f, { min: 0 })), row("freeze cap", numField(s, "freeze_cap", f, { integer: true, min: 1 }), "Freeze stacks before it hard-freezes."),
+    row("shape", selectField(k, "shape", f, C.silhouettes), "The placeholder silhouette (it also sizes the hitbox)."), row("art height", [numField(k, "art_height", f, { min: 20 }), h("span", { class: "unit" }, "px")]),
+    row("puppet", selectField(k, "puppet", f, (S.files.puppets.puppets || []).filter(p => !p.startsWith("hero_")), { optional: true, emptyLabel: "(none: the plain shape)" })),
+    row("tint", colorField(k, "tint", f, { optional: true, after: re }), "Colours the puppet: a colour variant of a puppet other kinds share."), row("flat colour", colorField(s, "color", f, { after: re })),
+    row("loot odds x", numField(k, "drop_mult", f, { def: 1, optional: true, min: 0 })), row("star value", numField(k, "fame", f, { integer: true, def: 1, optional: true, min: 0 })), row("flies", boolField(k, "fly", f, { optional: true }), "Only walls stop it; the crowd neither shoves it nor blocks it.")));
+  // awareness + movement
+  const mv = k.move = k.move || {};
+  const style = mv.style || "direct";
+  out.append(h("details", { class: "card", open: true }, h("summary", {}, "Notices and moves"),
+    row("notice radius", [numField(k, "detect", f, { optional: true, min: 0, after: re }), h("span", { class: "unit" }, "px · 0 / empty = always aware")], "Outside it the enemy idles (stands still, or wanders). A hit alerts it at once."),
+    row("movement style", selectField(mv, "style", f, C.enemy.move_styles, { after: () => { const st = mv.style; const keep = {}; keep.style = st; for (const [pk, pd] of MOVE_PARAMS[st] || []) keep[pk] = pd; k.move = st === "direct" ? {} : keep; re(); } }), MOVE_HELP[style]),
+    paramRows(mv, f, MOVE_PARAMS[style] || [])));
+  if (!Object.keys(mv).length || (Object.keys(mv).length === 1 && mv.style === "direct")) delete k.move;
+  // attack
+  const attackKind = k.ranged && Object.keys(k.ranged).length ? "ranged" : (k.attack && Object.keys(k.attack).length ? "dash" : "touch");
+  const attackSel = h("select", {}, [["touch", "touch only"], ["dash", "dash (telegraphed rush)"], ["ranged", "ranged (shoots)"]].map(([v, l]) => h("option", { value: v }, l)));
+  attackSel.value = attackKind;
+  attackSel.addEventListener("change", () => {
+    delete k.attack; delete k.ranged;
+    if (attackSel.value === "dash") k.attack = Object.assign({ type: "dash", through: false }, Object.fromEntries(DASH_PARAMS.map(([a, d]) => [a, d])));
+    if (attackSel.value === "ranged") k.ranged = Object.assign({ style: "light", amble: true, telegraph: true }, Object.fromEntries(RANGED_BASE.map(([a, d]) => [a, d])));
+    touch(f); re();
+  });
+  const atkCard = h("details", { class: "card", open: true }, h("summary", {}, "Attack"), row("attack", attackSel));
+  if (attackKind === "dash") atkCard.append(paramRows(k.attack, f, DASH_PARAMS), row("through", boolField(k.attack, "through", f), "Keeps rushing past the hero instead of stopping where it hits."));
+  if (attackKind === "ranged") {
+    const rg = k.ranged;
+    atkCard.append(row("style", selectField(rg, "style", f, C.enemy.ranged_styles, { after: () => { for (const [a, d, , i] of RANGED_EXTRA[rg.style] || []) if (rg[a] === undefined) rg[a] = d; re(); } }), { light: "one bullet", heavy: "one bullet: use a long windup, a big slow bullet and big damage", burst: "several bullets one after another", spray: "several bullets at once in a fan", ring: "bullets all the way round", bomb: "a bomb lobbed where the hero stood: a red circle fills, then it blows" }[rg.style || "light"]),
+      paramRows(rg, f, RANGED_BASE), paramRows(rg, f, RANGED_EXTRA[rg.style || "light"] || []), row("wander in", boolField(rg, "amble", f), "Ambles toward the hero until lock_range, then rushes."), row("aim line", boolField(rg, "telegraph", f), "Shows the red aim line while it lines up a shot."));
+  }
+  out.append(atkCard);
+  // traits
+  const tr = k.traits = k.traits || {};
+  out.append(h("details", { class: "card" }, h("summary", {}, "Traits"), TRAIT_DEFS.map(([t, d, hint]) => row(t, numField(tr, t, f, { def: d, optional: true, min: 0, after: () => { if (!Object.keys(tr).length) delete k.traits; } }), hint, tr[t] !== undefined))));
+  if (!Object.keys(tr).length) delete k.traits;
+  // on death
+  const od = k.on_death = k.on_death || {};
+  const odSel = h("select", {}, [["", "nothing"], ...C.enemy.death_types.map(t => [t, { explode: "explodes", split: "splits into others", drop: "drops stars" }[t] || t])].map(([v, l]) => h("option", { value: v }, l)));
+  odSel.value = od.type || "";
+  odSel.addEventListener("change", () => { for (const x of Object.keys(od)) delete od[x]; if (odSel.value === "explode") Object.assign(od, { type: "explode", radius: 100, damage: 12, color: "#ff7a3a" }); if (odSel.value === "split") Object.assign(od, { type: "split", into: selOptionsKinds(id)[0] || "grunt", count: 2 }); if (odSel.value === "drop") Object.assign(od, { type: "drop", stars: 3 }); touch(f); re(); });
+  const odCard = h("details", { class: "card" }, h("summary", {}, "When it dies"), row("then it", odSel));
+  if (od.type === "explode") odCard.append(row("radius", numField(od, "radius", f, { min: 1 })), row("damage", numField(od, "damage", f, { min: 1 })), row("colour", colorField(od, "color", f, { after: re })));
+  if (od.type === "split") odCard.append(row("into", selectField(od, "into", f, selOptionsKinds(id))), row("how many", numField(od, "count", f, { integer: true, min: 1 })));
+  if (od.type === "drop") odCard.append(row("stars", numField(od, "stars", f, { integer: true, min: 1 })));
+  out.append(odCard);
+  if (!od.type) delete k.on_death;
+  // elite
+  const hasElite = !!(k.elite && Object.keys(k.elite).length);
+  const elCard = h("details", { class: "card" }, h("summary", {}, "Elite version"), row("has elites", (() => { const c = h("input", { type: "checkbox", checked: hasElite }); c.addEventListener("change", () => { if (c.checked) k.elite = clone(ELITE_DEFAULT); else delete k.elite; touch(f); re(); }); return c; })(), "Each spawn is an elite with this chance: tougher, bigger, a gold glow, worth more."));
+  if (hasElite) elCard.append(paramRows(k.elite, f, Object.entries(ELITE_DEFAULT).map(([a, d]) => [a, d, { chance: "0 to 1", from_wave: "first wave", size: "x body size" }[a] || "x"])));
+  out.append(elCard);
+  return out;
+}
+
+function spawnEditor(en) {
+  const f = "enemies";
+  const sp = en.spawn = en.spawn || {};
+  const useWeights = Array.isArray(sp.weights) && sp.weights.length > 0;
+  const wrap = h("div", { class: "card" });
+  const mode = h("select", {}, [["roll", "chance chain (the older way)"], ["weights", "weights (drawn in proportion)"]].map(([v, l]) => h("option", { value: v }, l)));
+  mode.value = useWeights ? "weights" : "roll";
+  mode.addEventListener("change", () => { if (mode.value === "weights") { sp.weights = sp.weights?.length ? sp.weights : [{ kind: sp.default || "grunt", weight: 1 }]; sp.roll = []; } else { sp.weights = []; } touch(f); renderMain(); });
+  wrap.append(row("how kinds are picked", mode, "Weights: each kind is drawn in proportion to its weight among the entries open on that wave."));
+  const kinds = selOptionsKinds();
+  if (useWeights) {
+    const t = h("table", { class: "t" }, h("tr", {}, ["kind", "weight", "from wave", "to wave", ""].map(x => h("th", {}, x))));
+    sp.weights.forEach((w, i) => t.append(h("tr", {}, h("td", {}, selectField(w, "kind", f, kinds)), h("td", {}, numField(w, "weight", f, { min: 0.01 })), h("td", {}, numField(w, "from", f, { integer: true, optional: true, def: 1 })), h("td", {}, numField(w, "to", f, { integer: true, optional: true, def: 9999 })), h("td", {}, h("button", { class: "btn small", onclick: async () => { sp.weights.splice(i, 1); touch(f); renderMain(); } }, "✕")))));
+    wrap.append(t, h("button", { class: "btn small", onclick: async () => { sp.weights.push({ kind: kinds[0], weight: 1 }); touch(f); renderMain(); } }, "+ add a kind"));
+  } else {
+    sp.roll = sp.roll || [];
+    wrap.append(row("default kind", selectField(sp, "default", f, kinds), "What a spawn is when no rule below wins."));
+    const t = h("table", { class: "t" }, h("tr", {}, ["kind", "from wave", "if the roll is below", ""].map(x => h("th", {}, x))));
+    sp.roll.forEach((r, i) => t.append(h("tr", {}, h("td", {}, selectField(r, "kind", f, kinds)), h("td", {}, numField(r, "from", f, { integer: true, min: 1 })), h("td", {}, numField(r, "below", f, { min: 0, max: 1 })), h("td", {}, h("button", { class: "btn small", onclick: async () => { sp.roll.splice(i, 1); touch(f); renderMain(); } }, "✕")))));
+    wrap.append(t, h("button", { class: "btn small", onclick: async () => { sp.roll.push({ kind: kinds[0], from: 1, below: 0.1 }); touch(f); renderMain(); } }, "+ add a rule"), h("p", { class: "hint dim" }, "One number from 0 to 1 is drawn per spawn; the first rule (top to bottom) whose wave has been reached and whose limit is above that number gives its kind."));
+  }
+  wrap.append(problemBlock(problemsFor("enemies", "spawn")));
+  if (sp.early_shooter && Object.keys(sp.early_shooter).length || sp.pack && Object.keys(sp.pack).length) wrap.append(h("p", { class: "dim" }, "This pack also has early-shooter / cluster-pack spawn rules (edit them under All content → enemies)."));
+  return wrap;
+}
+
+// ---- abilities
+const ABILITY_FIELDS = {
+  dash: [["distance", 190, "px", 1], ["duration", 0.16, "s", 1], ["invulnerable", 0, "s"], ["damage", 6, "to what it passes through"], ["radius", 36, "px reach for that"]],
+  roll: [["distance", 150, "px", 1], ["duration", 0.22, "s", 1], ["invulnerable", 0.3, "s"], ["damage", 0, "to what it passes through"], ["radius", 36, "px reach for that"]],
+  blink: [["distance", 260, "px", 1], ["invulnerable", 0.15, "s"]], shield: [["invulnerable", 1.2, "s nothing can hurt the hero", 1]],
+  speed_boost: [["duration", 2.5, "s", 1], ["multiplier", 1.6, "x move speed", 1]], slam: [["radius", 150, "px", 1], ["damage", 14, "", 1], ["knockback", 300, "shove"]],
+  push_pulse: [["radius", 190, "px", 1], ["knockback", 520, "shove", 1], ["damage", 0, ""]], burst_heal: [["heal", 10, "flat health"], ["heal_pct", 0.2, "fraction of max health"]],
+};
+function tabAbilities() {
+  const ab = S.files.abilities.abilities;
+  const f = "abilities";
+  const sel = S.sel.ability && ab.some(a => a.id === S.sel.ability) ? S.sel.ability : (ab[0] || {}).id;
+  S.sel.ability = sel;
+  const a = ab.find(x => x.id === sel);
+  const wrap = h("div", {}, h("h2", {}, "Abilities"), h("p", { class: "lead" }, "What a hero's ability button does: a kind plus numbers. Give a hero its ability on the All content → heroes tab (or set the default under Rules → Hero)."));
+  const list = h("div", { class: "list" });
+  for (const x of ab) list.append(h("div", { class: "item" + (x.id === sel ? " on" : ""), onclick: async () => { S.sel.ability = x.id; renderMain(); } }, h("span", {}, x.name || x.id), h("small", {}, x.kind)));
+  list.append(h("div", { class: "tools" },
+    h("button", { class: "btn small", onclick: async () => { const n = slug(await ask("Id for the new ability:") || ""); if (!n) return; if (ids(f, "abilities").includes(n)) { toast("That id exists"); return; } ab.push({ id: n, name: n, kind: "dash", cooldown: 2, charges: 1, distance: 180, duration: 0.18, color: "#9be8ff" }); S.sel.ability = n; touch(f); renderMain(); } }, "+ New"),
+    h("button", { class: "btn small", onclick: async () => { if (!a) return; const n = slug(await ask(`Id for the copy of ${a.id}:`) || ""); if (!n || ids(f, "abilities").includes(n)) return; const c = clone(a); c.id = n; ab.splice(ab.indexOf(a) + 1, 0, c); S.sel.ability = n; touch(f); renderMain(); } }, "Copy"),
+    h("button", { class: "btn small danger", onclick: async () => { if (a && await sure(`Delete the ability '${a.id}'?`)) { ab.splice(ab.indexOf(a), 1); S.sel.ability = null; touch(f); renderMain(); } } }, "Delete")));
+  const form = h("div", {});
+  if (a) {
+    const users = (S.files.heroes.heroes || []).filter(x => x.ability === a.id).map(x => x.name || x.id);
+    form.append(problemBlock(problemsFor(f, a.id + ":")), row("id", [h("span", {}, a.id), h("span", { class: "unit" }, "(fixed: heroes refer to it)")]), row("name", textField(a, "name", f, { after: renderMain })),
+      row("kind", selectField(a, "kind", f, C.ability_kinds, { after: () => { for (const [k, d] of ABILITY_FIELDS[a.kind] || []) if (a[k] === undefined) a[k] = d; renderMain(); } })),
+      row("cooldown", [numField(a, "cooldown", f, { min: 0.05 }), h("span", { class: "unit" }, "s to recharge one use")]), row("charges", [numField(a, "charges", f, { integer: true, min: 1, def: 1, optional: true }), h("span", { class: "unit" }, "uses stored, recharged one at a time")]),
+      (ABILITY_FIELDS[a.kind] || []).map(([k, d, unit, req]) => row(k + (C.ability_required[a.kind].includes(k) ? " *" : ""), [numField(a, k, f, { def: d, optional: true, min: 0 }), h("span", { class: "unit" }, unit)], null, a[k] !== undefined)),
+      ["dash", "roll", "slam", "push_pulse"].includes(a.kind) ? row("damage type", selectField(a, "damage_type", f, C.damage_types, { optional: true, emptyLabel: "physical" }), "Used when it deals damage.") : null,
+      row("colour", colorField(a, "color", f, { after: renderMain })), row("description", textField(a, "desc", f, { optional: true })),
+      h("p", { class: "dim" }, users.length ? "Used by: " + users.join(", ") : "No hero uses this ability yet (unless it is the default rule)."), h("p", { class: "dim" }, "* required for this kind."));
+  } else form.append(h("p", { class: "lead" }, "No abilities yet."));
+  wrap.append(h("div", { class: "split" }, list, form));
+  return wrap;
+}
+
+// ---- all content (generic editor)
+const HINTS = {
+  shape: () => C.shapes, damage_type: () => C.damage_types, status: () => C.statuses, stat: () => C.stats, start_power: () => ids("powers", "powers"), ability: () => ["", ...ids("abilities", "abilities")],
+  signature: () => ids("powers", "powers"), category: () => C.reward_categories, puppet: () => (S.files.puppets.puppets || []),
+};
+const CONTENT_FILES = [["heroes", "Heroes"], ["powers", "Powers"], ["looks", "Power looks"], ["bosses", "Bosses"], ["gear", "Gear"], ["talents", "Talents"], ["achievements", "Achievements"], ["fusion", "Fusion"], ["hero_effects", "Hero effects"], ["shop", "Shop leanings"], ["puppets", "Puppets list"], ["enemies", "Enemies (raw)"], ["abilities", "Abilities (raw)"], ["game", "game.json (raw)"]];
+
+function tabContent() {
+  const file = S.sel.file || "heroes";
+  const wrap = h("div", {}, h("h2", {}, "All content"), h("p", { class: "lead" }, "Every file in the pack, edited field by field. The Enemies, Abilities, Rules and Presets tabs are friendlier for those; this is for everything else (and a raw view of any file)."));
+  const tabs = h("div", { class: "ctl", style: "margin-bottom:12px" }, CONTENT_FILES.map(([f, l]) => h("button", { class: "btn small" + (f === file ? " primary" : ""), onclick: async () => { S.sel.file = f; S.sel.item = null; renderMain(); } }, l)));
+  wrap.append(tabs);
+  const data = S.files[file];
+  if (!data) { wrap.append(h("p", {}, "That file is not in this pack.")); return wrap; }
+  const rawMode = S.sel.raw && S.sel.raw === file;
+  wrap.append(h("div", { class: "ctl", style: "margin-bottom:10px" }, h("button", { class: "btn small", onclick: async () => { S.sel.raw = rawMode ? null : file; renderMain(); } }, rawMode ? "← form view" : "raw JSON view"), h("span", { class: "dim" }, file + ".json" + (S.meta[file] && S.meta[file].by ? `  ·  saved by ${S.meta[file].by}` : ""))));
+  wrap.append(problemBlock(problemsFor(file)));
+  if (rawMode) {
+    const ta = h("textarea", { spellcheck: "false" });
+    ta.value = JSON.stringify(data, null, "\t");
+    const msg = h("span", { class: "dim" });
+    wrap.append(ta, h("div", { class: "ctl", style: "margin-top:8px" }, h("button", { class: "btn primary", onclick: async () => { try { S.files[file] = JSON.parse(ta.value); touch(file); renderMain(); } catch (e) { msg.textContent = "Not valid JSON: " + e.message; msg.className = "chip bad"; } } }, "Apply"), msg));
+    return wrap;
+  }
+  // lists / maps get an item list; everything else is edited directly
+  const fields = Object.entries(data);
+  const picks = [];
+  for (const [k, v] of fields) {
+    if (Array.isArray(v) && v.length && v.every(isObjV)) picks.push({ k, kind: "list" });
+    else if (isObjV(v) && Object.keys(v).length && Object.values(v).every(isObjV)) picks.push({ k, kind: "map" });
+  }
+  const others = fields.filter(([k]) => !picks.some(p => p.k === k));
+  const sel = S.sel.item && S.sel.item.file === file ? S.sel.item : null;
+  const list = h("div", { class: "list" });
+  const label = (it, i) => it.name || it.id || it.label || String(i);
+  for (const p of picks) {
+    list.append(h("div", { class: "item", style: "background:#ffffff08;cursor:default" }, h("b", {}, p.k), h("small", {}, p.kind === "list" ? data[p.k].length : Object.keys(data[p.k]).length)));
+    const entries = p.kind === "list" ? data[p.k].map((it, i) => [i, it]) : Object.entries(data[p.k]);
+    for (const [i, it] of entries) list.append(h("div", { class: "item" + (sel && sel.k === p.k && sel.i === i ? " on" : ""), onclick: async () => { S.sel.item = { file, k: p.k, i, kind: p.kind }; renderMain(); } }, h("span", {}, p.kind === "list" ? label(it, i) : i), p.kind === "map" ? h("small", {}, it.name || "") : h("small", {}, it.id && it.name ? it.id : "")));
+  }
+  if (others.length) list.append(h("div", { class: "item" + (sel && sel.k === "__other" ? " on" : ""), onclick: async () => { S.sel.item = { file, k: "__other" }; renderMain(); } }, h("span", {}, "other fields"), h("small", {}, others.map(o => o[0]).join(", "))));
+  const editor = h("div", {});
+  const cur = sel || (picks[0] ? { file, k: picks[0].k, i: picks[0].kind === "list" ? 0 : Object.keys(data[picks[0].k])[0], kind: picks[0].kind } : { file, k: "__other" });
+  if (cur.k === "__other") {
+    const sub = {}; for (const [k, v] of others) sub[k] = v;
+    editor.append(genericEditor(data, file, { only: others.map(o => o[0]) }));
+  } else {
+    const container = cur.kind === "list" ? data[cur.k] : data[cur.k];
+    const item = container[cur.i];
+    if (item) {
+      editor.append(h("div", { class: "ctl", style: "margin-bottom:8px" }, h("b", {}, `${cur.k}[${cur.i}]`), h("span", { style: "flex:1" }),
+        h("button", { class: "btn small", onclick: async () => { if (cur.kind === "list") { container.splice(cur.i + 1, 0, clone(item)); S.sel.item = { ...cur, i: cur.i + 1 }; } else { const n = slug(await ask("Key for the copy:") || ""); if (!n || container[n]) return; container[n] = clone(item); S.sel.item = { ...cur, i: n }; } touch(file); renderMain(); } }, "Copy"),
+        h("button", { class: "btn small danger", onclick: async () => { if (!await sure("Delete this entry?")) return; if (cur.kind === "list") container.splice(cur.i, 1); else delete container[cur.i]; S.sel.item = null; touch(file); renderMain(); } }, "Delete")));
+      editor.append(genericEditor(item, file, { path: cur.k }));
+    }
+    editor.append(h("button", { class: "btn small", style: "margin-top:10px", onclick: async () => { if (cur.kind === "list") { const proto = clone(container[container.length - 1] || {}); if (proto.id) proto.id = proto.id + "_2"; container.push(proto); S.sel.item = { ...cur, i: container.length - 1 }; } else { const n = slug(await ask("Key for the new entry:") || ""); if (!n || container[n]) return; container[n] = clone(Object.values(container)[0] || {}); S.sel.item = { ...cur, i: n }; } touch(file); renderMain(); } }, "+ Add " + (cur.kind === "list" ? "an entry" : "a keyed entry")));
+  }
+  wrap.append(h("div", { class: "split" }, list, editor));
+  return wrap;
+}
+
+// the recursive editor: objects, lists, numbers, text, switches; known keys get pickers
+function genericEditor(value, file, o = {}) {
+  const wrap = h("div", {});
+  const re = () => renderMain();
+  if (isObjV(value)) {
+    for (const [k, v] of Object.entries(value)) {
+      if (o.only && !o.only.includes(k)) continue;
+      wrap.append(fieldRow(value, k, v, file, re));
+    }
+    wrap.append(addFieldBar(value, file, re));
+  } else wrap.append(h("p", {}, JSON.stringify(value)));
+  return wrap;
+}
+function fieldRow(obj, k, v, file, re) {
+  const del = h("button", { class: "btn small", title: "Remove this field", onclick: async () => { delete obj[k]; touch(file); re(); } }, "✕");
+  const hint = HINTS[k];
+  if (hint && (typeof v === "string")) return row(k, [selectField(obj, k, file, hint(), {}), del]);
+  if (typeof v === "number") return row(k, [numField(obj, k, file, {}), del]);
+  if (typeof v === "boolean") return row(k, [boolField(obj, k, file), del]);
+  if (typeof v === "string") return row(k, [/^#[0-9a-f]{6}$/i.test(v) ? colorField(obj, k, file, { after: re }) : textField(obj, k, file), del]);
+  if (Array.isArray(v)) {
+    if (v.every(x => typeof x === "string" || typeof x === "number")) {
+      const t = h("input", { type: "text", style: "width:420px" });
+      t.value = v.join(", ");
+      const numeric = v.length > 0 && v.every(x => typeof x === "number");
+      t.addEventListener("change", () => { const parts = t.value.split(",").map(s => s.trim()).filter(s => s !== ""); obj[k] = numeric ? parts.map(Number) : parts; touch(file); });
+      return row(k, [t, del], "comma separated");
+    }
+    if (v.every(isObjV)) {
+      const box = h("div", {});
+      v.forEach((it, i) => box.append(h("details", { class: "card" }, h("summary", {}, `${k}[${i}]`, it.name || it.id ? "  " + (it.name || it.id) : ""), genericEditor(it, file), h("button", { class: "btn small danger", onclick: async () => { v.splice(i, 1); touch(file); re(); } }, "Remove this one"))));
+      box.append(h("button", { class: "btn small", onclick: async () => { v.push(clone(v[v.length - 1] || {})); touch(file); re(); } }, "+ add"));
+      return row(k, [box, del]);
+    }
+    const t = h("input", { type: "text", style: "width:520px" });
+    t.value = JSON.stringify(v);
+    t.addEventListener("change", () => { try { obj[k] = JSON.parse(t.value); t.classList.remove("bad"); touch(file); } catch (e) { t.classList.add("bad"); } });
+    return row(k, [t, del], "JSON");
+  }
+  if (isObjV(v)) return row(k, [h("details", { class: "card", style: "flex:1;min-width:300px", open: Object.keys(v).length < 9 }, h("summary", {}, `${Object.keys(v).length} fields`), genericEditor(v, file)), del]);
+  return row(k, [h("span", { class: "dim" }, "null"), del]);
+}
+function addFieldBar(obj, file, re) {
+  const name = h("input", { type: "text", placeholder: "new field name", style: "width:160px" });
+  const type = h("select", {}, ["number", "text", "yes/no", "list", "group"].map(t => h("option", { value: t }, t)));
+  return h("div", { class: "ctl", style: "margin-top:8px" }, name, type, h("button", { class: "btn small", onclick: async () => { const n = name.value.trim(); if (!n || n in obj) return; obj[n] = { number: 0, text: "", "yes/no": false, list: [], group: {} }[type.value]; touch(file); re(); } }, "+ field"));
+}
+
+// ---- problems
+const FILE_TAB = { game: "rules", enemies: "enemies", abilities: "abilities" };
+function tabProblems() {
+  const wrap = h("div", {}, h("h2", {}, "Problems"), h("p", { class: "lead" }, "What the same validator the game's tools use finds in this pack. Click one to open the file it is in. Fix them all before pulling the pack into the game."));
+  if (!S.problems.length) { wrap.append(h("p", { class: "chip ok" }, "✓ no problems found")); return wrap; }
+  wrap.append(h("ul", { class: "problems" }, S.problems.map(p => h("li", { onclick: async () => { const file = p.split(".json")[0]; if (FILE_TAB[file]) S.tab = FILE_TAB[file]; else { S.tab = "content"; S.sel.file = file; S.sel.item = null; } renderNav(); renderMain(); } }, h("b", {}, p.split(": ")[0] + " "), p.split(": ").slice(1).join(": ")))));
+  return wrap;
+}
+
+// ---------------------------------------------------------------- boot
+async function boot() {
+  $("#saveBtn").addEventListener("click", () => saveAll().catch(e => toast("Save failed: " + e.message)));
+  $("#newPack").addEventListener("click", () => newPack().catch(e => toast("Could not create the pack: " + e.message)));
+  $("#packSelect").addEventListener("change", async e => { if (S.dirty.size && !await sure("You have unsaved changes in this pack. Switch anyway and lose them?")) { renderPackSelect(); return; } loadPack(e.target.value); });
+  $("#whoBtn").addEventListener("click", async () => { const n = await ask("Your name (shown next to your saves):", S.user); if (n !== null) { S.user = n.trim(); localStorage.setItem("studio_who", S.user); updateChrome(); } });
+  $("#problemChip").addEventListener("click", () => { S.tab = "problems"; renderNav(); renderMain(); });
+  window.addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); saveAll().catch(err => toast("Save failed: " + err.message)); } });
+  window.addEventListener("beforeunload", e => { if (S.dirty.size) { e.preventDefault(); e.returnValue = ""; } });
+  window.__studio = { S, validatePack, DATA };   // for the parity check and debugging
+  try {
+    await signIn();
+    await listPacks();
+    if (!S.user) { const n = await ask("Welcome! Your name (shown next to your saves):", ""); S.user = (n || "").trim(); localStorage.setItem("studio_who", S.user); }
+    if (!S.packs.length) { $("#main").innerHTML = "<p class='lead'>The cloud has no packs yet. Seed one from the repo with: py tools/studio/sync_pack.py push placeholder</p>"; return; }
+    const want = localStorage.getItem("studio_pack");
+    await loadPack(S.packs.includes(want) ? want : S.packs[0]);
+  } catch (e) {
+    $("#main").innerHTML = "";
+    $("#main").append(h("p", { class: "lead" }, "Could not reach the studio database: " + e.message + ". Check your connection (and that Anonymous sign-in and Firestore are enabled in the Firebase console)."));
+  }
+}
+boot();
+
+</script>
+</body>
+</html>
