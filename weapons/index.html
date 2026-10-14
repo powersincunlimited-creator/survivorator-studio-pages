@@ -730,6 +730,25 @@ window.__weapons = { get parts(){ return parts; }, IMG, imgPicker, imgPrep, imgL
 /* A picture part: a polygon of four corners (top-left, top-right, bottom-right, bottom-left) with a library picture laid on them (part.img = {file, w, h}); only weapons and shots (the game draws
    effects and entities another way). The picture is placed by an SVG matrix from the corners as they are on the stage. */
 function imgMatrixAbs(abs, img){ const w = img.w || 1, h = img.h || 1, a = abs[0], b = abs[1], d = abs[3]; return 'matrix(' + [(b[0]-a[0])/w, (b[1]-a[1])/w, (d[0]-a[0])/h, (d[1]-a[1])/h, a[0], a[1]].join(' ') + ')'; }
+let tintDefs = null, tintIds = null;   // per render of the stage: the SVG filters that multiply a picture by a colour
+function tintFilter(hex6){
+  const h = (hex6 || '#ffffff').slice(1, 7).toLowerCase(); if(h === 'ffffff' || !tintDefs) return '';
+  const id = 'tint' + h;
+  if(!tintIds.has(id)){
+    tintIds.add(id);
+    const r = (parseInt(h.slice(0,2),16)/255).toFixed(3), g = (parseInt(h.slice(2,4),16)/255).toFixed(3), b = (parseInt(h.slice(4,6),16)/255).toFixed(3);
+    const f = el('filter', {id, 'color-interpolation-filters':'sRGB', x:'-5%', y:'-5%', width:'110%', height:'110%'});
+    f.appendChild(el('feColorMatrix', {type:'matrix', values: r+' 0 0 0 0  0 '+g+' 0 0 0  0 0 '+b+' 0 0  0 0 0 1 0'}));
+    tintDefs.appendChild(f);
+  }
+  return 'url(#' + id + ')';
+}
+function pictureEl(part, abs, opacity, colorHex8, blend){   // the picture on the part's four corners (abs), tinted by the colour
+  const url = imgUrl(part.img.file); if(!url || abs.length !== 4) return null;
+  const attrs = {href:url, width:part.img.w || 1, height:part.img.h || 1, transform:imgMatrixAbs(abs, part.img), preserveAspectRatio:'none', opacity:opacity * parseHex8(colorHex8).a, style:'pointer-events:none;' + (blend || '')};
+  const f = tintFilter(colorHex8); if(f) attrs.filter = f;
+  return el('image', attrs);
+}
 function imgSizeOfPart(part){ const a = part.points[0], b = part.points[1], d = part.points[3]; return [Math.hypot(b[0]-a[0], b[1]-a[1]), Math.hypot(d[0]-a[0], d[1]-a[1])]; }
 function setPartImgSize(part, w, h){
   const [cw, ch] = imgSizeOfPart(part); if(cw < 1e-6 || ch < 1e-6) return;
@@ -739,7 +758,6 @@ function setPartImgSize(part, w, h){
 }
 async function addPicturePart(){
   if(!current) return;
-  if(current.ns === 'effects' || current.ns === 'entities'){ setStatus('', 'Pictures work in weapons and shots (the game draws effects another way)'); return; }
   const file = await imgPicker({pick: true, title: 'Pick a picture for a part'}); if(!file) return;
   const files = await imgList(), m = files[file] || {w: 64, h: 64};
   const b = shapeBounds(), diag = Math.hypot(b.maxX-b.minX, b.maxY-b.minY) || 20, W = Math.max(diag * 0.5, 4), H = W * (m.h || 1) / (m.w || 1);
@@ -2160,10 +2178,11 @@ function drawEffectPart(part, tt, tAnim){
     const fx = fxFor(part, tt, spread), an = animFor(part, tAnim), bd = bindFor(part);
     const st = {rot:fx.rot + an.rot + bd.rot, brot:bd.brot, scale:fx.scale*an.scale*bd.scale, sx:bd.sx, sy:bd.sy, dx:fx.dx + an.dx + bd.dx, dy:fx.dy + an.dy + bd.dy};
     const alpha = fx.alpha * an.alpha * bd.alpha;
-    const pts = effectPartPoints(part, st, ang).map(p => p[0]+','+p[1]).join(' ');
+    const absFx = effectPartPoints(part, st, ang), pts = absFx.map(p => p[0]+','+p[1]).join(' ');
     const blend = part.blend === 'add' ? 'mix-blend-mode:screen' : '';
     const col = effectColor(part);
-    if(part.type === 'polygon') stage.appendChild(el('polygon', {points:pts, fill:col, 'fill-opacity':alpha, style:blend}));
+    if(part.type === 'polygon' && part.img){ const pi2 = pictureEl(part, absFx, alpha, col, blend); if(pi2) stage.appendChild(pi2); }
+    else if(part.type === 'polygon') stage.appendChild(el('polygon', {points:pts, fill:col, 'fill-opacity':alpha, style:blend}));
     else stage.appendChild(el('polyline', {points:pts, fill:'none', stroke:col, 'stroke-opacity':alpha, style:blend, 'stroke-width':part.width || 1, 'stroke-linecap':'round', 'stroke-linejoin':'round'}));
   }
 }
@@ -2282,6 +2301,7 @@ function renderStage(){
   stage.innerHTML = '';
   if(!current) return;
   stage.setAttribute('viewBox', view.minX+' '+view.minY+' '+view.w+' '+view.h);
+  tintDefs = el('defs', {}); tintIds = new Set(); stage.appendChild(tintDefs);
   stage.appendChild(el('line', {class:'origin-mark', x1:view.minX, y1:0, x2:view.minX+view.w, y2:0}));
   stage.appendChild(el('line', {class:'origin-mark', x1:0, y1:view.minY, x2:0, y2:view.minY+view.h}));
 
@@ -2311,8 +2331,9 @@ function renderStage(){
     const fillCol = effectColor(part);
     if(isFx && part.ring && part.ring.count > 1){   // the other ring copies, faint, so the repeat is visible while editing
       for(let i = 1; i < part.ring.count; i++){
-        const gp = effectPartPoints(part, {rot:0, scale:1, dx:0, dy:0}, 2*Math.PI*i/part.ring.count).map(q => q[0]+','+q[1]).join(' ');
-        if(part.type === 'polygon') stage.appendChild(el('polygon', {points:gp, fill:fillCol, 'fill-opacity':0.3, style:'pointer-events:none'}));
+        const gabs = effectPartPoints(part, {rot:0, scale:1, dx:0, dy:0}, 2*Math.PI*i/part.ring.count), gp = gabs.map(q => q[0]+','+q[1]).join(' ');
+        if(part.type === 'polygon' && part.img){ const gi = pictureEl(part, gabs, 0.3, fillCol, ''); if(gi) stage.appendChild(gi); }
+        else if(part.type === 'polygon') stage.appendChild(el('polygon', {points:gp, fill:fillCol, 'fill-opacity':0.3, style:'pointer-events:none'}));
         else stage.appendChild(el('polyline', {points:gp, fill:'none', stroke:fillCol, 'stroke-opacity':0.3, 'stroke-width':part.width||1, style:'pointer-events:none'}));
       }
     }
@@ -2323,8 +2344,8 @@ function renderStage(){
       else if(ow > 0) stage.appendChild(el('polyline', {points:ptsAttr, fill:'none', stroke:ocHex, 'stroke-opacity':oa, 'stroke-width':(part.width||1) + ow*2, 'stroke-linecap':'butt', 'stroke-linejoin':'round', style:'pointer-events:none'}));
     }
     if(part.type === 'polygon' && part.img){   // a picture: the image on the four corners, and an invisible polygon over it to click on
-      const url = imgUrl(part.img.file);
-      if(url && abs.length === 4) stage.appendChild(el('image', {href:url, width:part.img.w || 1, height:part.img.h || 1, transform:imgMatrixAbs(abs, part.img), preserveAspectRatio:'none', opacity:op * parseHex8(part.color).a, style:'pointer-events:none;' + blend}));
+      const url = imgUrl(part.img.file), pe0 = pictureEl(part, abs, op, fillCol, blend);
+      if(pe0) stage.appendChild(pe0);
       fillEl = el('polygon', {points:ptsAttr, fill:'transparent', style:'fill:transparent;' + (url ? '' : 'stroke:#ff4fd0;stroke-dasharray:1 1;'), 'data-pi':pi, class:'part-fill'+(isActive?' active-part':'')});
       stage.appendChild(fillEl);
       if(!previewOn) stage.appendChild(el('polygon', {points:ptsAttr, class:'part-outline'+(isActive?'':' dim')}));

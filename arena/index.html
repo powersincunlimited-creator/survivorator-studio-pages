@@ -487,6 +487,16 @@ function imgElFor(name) {
   const url = imgUrl(name); if (!url) return null;
   const img = new Image(), rec = { img, ok: false }; imgEls.set(name, rec); img.onload = () => { rec.ok = true; redraw(); }; img.src = url; return null;
 }
+/* a picture multiplied by a colour (the game tints a picture part by the part's colour): drawn once into a canvas per picture and colour */
+const tintCache = new WeakMap();
+function tintedImage(im, rgb) {
+  if (rgb === "ffffff") return im;
+  let m = tintCache.get(im); if (!m) { m = new Map(); tintCache.set(im, m); }
+  if (m.has(rgb)) return m.get(rgb);
+  const c = document.createElement("canvas"); c.width = im.naturalWidth; c.height = im.naturalHeight; const g = c.getContext("2d");
+  g.drawImage(im, 0, 0); g.globalCompositeOperation = "multiply"; g.fillStyle = "#" + rgb; g.fillRect(0, 0, c.width, c.height); g.globalCompositeOperation = "destination-in"; g.drawImage(im, 0, 0);
+  m.set(rgb, c); return c;
+}
 function imgSizeOfPart(pt) { const a = pt.points[0], b = pt.points[1], d = pt.points[3]; return [Math.hypot(b[0] - a[0], b[1] - a[1]), Math.hypot(d[0] - a[0], d[1] - a[1])]; }
 function setPartImgSize(pt, w, h) {   // keep the centre and the turn of the picture's corners; change the length of the two sides
   const [cw, ch] = imgSizeOfPart(pt); if (cw < 1e-6 || ch < 1e-6) return;
@@ -563,7 +573,7 @@ function drawPart(pt, fcol, scl, add) {
   ctx.translate(pp[0], pp[1]); ctx.rotate(pr); ctx.scale(ps[0], ps[1]);
   if (pt.img) {   // a picture: laid on the four corners by an affine matrix (top-left, top-right, bottom-left)
     const im = pts.length === 4 ? imgElFor(pt.img.file) : null, w = pt.img.w || 1, h = pt.img.h || 1;
-    if (im) { ctx.globalAlpha *= parseColor(pt.color)[3]; ctx.transform((pts[1][0] - pts[0][0]) / w, (pts[1][1] - pts[0][1]) / w, (pts[3][0] - pts[0][0]) / h, (pts[3][1] - pts[0][1]) / h, pts[0][0], pts[0][1]); ctx.drawImage(im, 0, 0, w, h); }
+    if (im) { ctx.globalAlpha *= parseColor(pt.color)[3]; ctx.transform((pts[1][0] - pts[0][0]) / w, (pts[1][1] - pts[0][1]) / w, (pts[3][0] - pts[0][0]) / h, (pts[3][1] - pts[0][1]) / h, pts[0][0], pts[0][1]); ctx.drawImage(tintedImage(im, hex8(pt.color).slice(0, 6).toLowerCase()), 0, 0, w, h); }
     else { ctx.beginPath(); pts.forEach((q, i) => i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1])); ctx.closePath(); ctx.strokeStyle = "#ff4fd0"; ctx.setLineDash([4, 4]); ctx.lineWidth = 1 / ui.zoom; ctx.stroke(); }
     ctx.restore(); return;
   }
