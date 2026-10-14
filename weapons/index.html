@@ -370,6 +370,7 @@
             </select>
             <button class="btn" id="btnShowAll" hidden title="Show every part you have hidden (editing view only)">Show all</button>
             <button class="btn" id="btnAddPart">+ Part</button>
+            <button class="btn" id="btnAddPicture" title="A hand-drawn picture from the library as a new part (weapons and shots)">+ Picture…</button>
           </div>
         </div>
         <div class="meta-panel" id="metaPanel"></div>
@@ -401,6 +402,299 @@ import { getAuth, signInAnonymously, onAuthStateChanged }
 import { getFirestore, collection, collectionGroup, doc, getDocs, setDoc, deleteDoc, addDoc, query, orderBy, limit, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
+/* The shared IMAGE LIBRARY of the art studios: upload a picture (png / jpg / webp / gif), cut out the part you want (crop, remove the background, erase / restore with a brush, lasso), keep its PNG
+   transparency, and use it as a part of a puppet (and, later, a weapon, a menu, the arena). Pictures live in the cloud collection `images` (images/<name>.png = {size, chunks, w, h, mime, updated, by},
+   the PNG as base64 text in images/<name>.png/chunks/0000 ... because a Firestore document holds 1 MiB) and `py tools/studio/sync_images.py pull` writes them to art/library/ for the game.
+   A host page calls imgBind({db: () => db, collection, doc, getDocs, setDoc, deleteDoc}) once, then uses imgPicker() / imgUrl(). */
+
+const IMG_CHUNK = 900000;                // base64 characters per chunk document (sync_images.py uses the same number)
+const IMG_MAX_BYTES = 3 * 1024 * 1024;   // the biggest PNG the library stores
+const IMG = { pickerDraw: null, fs: null, files: null, urls: {}, fetching: {}, onChange: () => {}, loading: null, user: () => "someone" };
+
+function imgBind(fs) { IMG.fs = fs; }
+function imgNotify(name) { IMG.onChange(name); if (IMG.pickerDraw) IMG.pickerDraw(); }
+const imgSlug = s => String(s).toLowerCase().replace(/\.[a-z0-9]+$/, "").replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+const imgKb = n => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+
+async function imgList(force) {
+  if (IMG.files && !force) return IMG.files;
+  if (IMG.loading && !force) return IMG.loading;
+  IMG.loading = (async () => {
+    const out = {};
+    if (IMG.fs && IMG.fs.db()) {
+      const snap = await IMG.fs.getDocs(IMG.fs.collection(IMG.fs.db(), "images"));
+      snap.docs.forEach(d => { const x = d.data(); out[d.id] = { size: x.size || 0, chunks: x.chunks || 0, w: x.w || 0, h: x.h || 0 }; });
+    }
+    IMG.files = out; IMG.loading = null; return out;
+  })();
+  return IMG.loading;
+}
+/* a picture's data URL, or null while it is being fetched (IMG.onChange() runs when it arrives) */
+function imgUrl(name) {
+  if (IMG.urls[name]) return IMG.urls[name];
+  if (!name || IMG.fetching[name] || !IMG.fs || !IMG.fs.db()) return null;
+  IMG.fetching[name] = true;
+  IMG.fs.getDocs(IMG.fs.collection(IMG.fs.db(), "images", name, "chunks")).then(snap => {
+    const b64 = snap.docs.sort((a, b) => (a.id < b.id ? -1 : 1)).map(d => d.data().data).join("");
+    if (b64) IMG.urls[name] = "data:image/png;base64," + b64;
+    delete IMG.fetching[name]; imgNotify(name);
+  }).catch(e => { delete IMG.fetching[name]; console.error(e); });
+  return null;
+}
+async function imgPut(name, blob, w, h, progress) {
+  const u8 = new Uint8Array(await blob.arrayBuffer());
+  if (u8.length > IMG_MAX_BYTES) throw new Error(`${name} is ${imgKb(u8.length)}: over the ${imgKb(IMG_MAX_BYTES)} limit (cut it smaller)`);
+  let s = ""; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  const b64 = btoa(s), n = Math.max(1, Math.ceil(b64.length / IMG_CHUNK)), fs = IMG.fs, db = fs.db();
+  for (let i = 0; i < n; i++) { await fs.setDoc(fs.doc(db, "images", name, "chunks", String(i).padStart(4, "0")), { data: b64.slice(i * IMG_CHUNK, (i + 1) * IMG_CHUNK) }); if (progress) progress(i + 1, n); }
+  const old = IMG.files && IMG.files[name];
+  if (old) for (let i = n; i < old.chunks; i++) await fs.deleteDoc(fs.doc(db, "images", name, "chunks", String(i).padStart(4, "0")));
+  await fs.setDoc(fs.doc(db, "images", name), { size: u8.length, chunks: n, w, h, mime: "image/png", updated: new Date().toISOString(), by: IMG.user() });
+  IMG.files = IMG.files || {}; IMG.files[name] = { size: u8.length, chunks: n, w, h };
+  IMG.urls[name] = "data:image/png;base64," + b64;
+  imgNotify(name);
+}
+async function imgRemove(name) {
+  const meta = (IMG.files || {})[name], fs = IMG.fs, db = fs.db();
+  for (let i = 0; i < (meta ? meta.chunks : 0); i++) await fs.deleteDoc(fs.doc(db, "images", name, "chunks", String(i).padStart(4, "0")));
+  await fs.deleteDoc(fs.doc(db, "images", name));
+  if (IMG.files) delete IMG.files[name]; delete IMG.urls[name];
+}
+/* a picture as a loaded <img> (for drawing in a canvas) */
+function imgLoad(src) { return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("that file is not a picture the browser can read")); i.src = src; }); }
+
+// ---------------------------------------------------------------- the small DOM kit and the style
+function ih(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) { if (v === false || v === null || v === undefined) continue; if (k === "class") e.className = v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else if (k === "value") e.value = v; else if (k === "checked") e.checked = !!v; else e.setAttribute(k, v === true ? "" : v); }
+  for (const kid of kids.flat(Infinity)) if (kid !== null && kid !== undefined && kid !== false) e.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  return e;
+}
+(function injectImgStyle() {
+  if (document.getElementById("imglib-style")) return;
+  const s = document.createElement("style"); s.id = "imglib-style";
+  s.textContent = `
+.imglib-back{position:fixed;inset:0;background:#000b;z-index:200;display:grid;place-items:center;font:13px system-ui,sans-serif}
+.imglib-box{background:#171929;color:#e9eaf6;border:1px solid #35d0ff;border-radius:10px;padding:14px 16px;width:min(1000px,96vw);max-height:94vh;overflow:auto;box-shadow:0 10px 40px #000a}
+.imglib-box h3{margin:0 0 8px;font-size:15px} .imglib-box button,.imglib-box select,.imglib-box input{font:inherit}
+.imglib-box button{background:#22263f;color:#e9eaf6;border:1px solid #333a63;border-radius:5px;padding:5px 10px;cursor:pointer} .imglib-box button:hover{border-color:#35d0ff}
+.imglib-box button.on,.imglib-box button.pri{background:#35d0ff;color:#04121a;border-color:#35d0ff;font-weight:600} .imglib-box button.bad{border-color:#ff6b7a;color:#ff9aa5}
+.imglib-box input[type=text],.imglib-box input[type=number],.imglib-box select{background:#0e1020;color:#e9eaf6;border:1px solid #333a63;border-radius:4px;padding:4px 6px}
+.imglib-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0} .imglib-dim{color:#8f94b8}
+.imglib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin:8px 0}
+.imglib-card{border:1px solid #333a63;border-radius:6px;padding:6px;background:#0e1020;cursor:pointer;position:relative;display:flex;flex-direction:column;gap:3px} .imglib-card:hover{border-color:#35d0ff}
+.imglib-card .th{height:92px;display:grid;place-items:center;border-radius:4px;overflow:hidden;background-image:linear-gradient(45deg,#1c1f33 25%,transparent 25%,transparent 75%,#1c1f33 75%),linear-gradient(45deg,#1c1f33 25%,#12142a 25%,#12142a 75%,#1c1f33 75%);background-size:14px 14px;background-position:0 0,7px 7px}
+.imglib-card .th img{max-width:100%;max-height:100%;object-fit:contain} .imglib-card small{color:#8f94b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imglib-card .tools{position:absolute;top:3px;right:3px;display:none;gap:3px} .imglib-card:hover .tools{display:flex} .imglib-card .tools button{padding:1px 6px}
+.imglib-stage{position:relative;display:inline-block;border:1px solid #333a63;border-radius:6px;line-height:0;background-image:linear-gradient(45deg,#2a2e4a 25%,transparent 25%,transparent 75%,#2a2e4a 75%),linear-gradient(45deg,#2a2e4a 25%,#1a1d33 25%,#1a1d33 75%,#2a2e4a 75%);background-size:16px 16px;background-position:0 0,8px 8px;max-width:100%;overflow:auto}
+.imglib-stage canvas{display:block;touch-action:none}
+`;
+  document.head.appendChild(s);
+})();
+function imgModal(build) {
+  return new Promise(resolve => {
+    const back = ih("div", { class: "imglib-back" }), box = ih("div", { class: "imglib-box" });
+    back.append(box); document.body.append(back);
+    const close = v => { back.remove(); resolve(v); };
+    back.addEventListener("mousedown", e => { if (e.target === back && !box.__locked) close(null); });
+    build(box, close);
+  });
+}
+
+// ---------------------------------------------------------------- the picker (the library)
+/* Pick a picture from the library (opts.pick = true), or just manage it. Resolves the chosen name, or null. */
+async function imgPicker(opts = {}) {
+  return imgModal(async (box, close) => {
+    const grid = ih("div", { class: "imglib-grid" }), status = ih("span", { class: "imglib-dim" }, "");
+    const search = ih("input", { type: "text", placeholder: "search…", style: "width:160px" });
+    const fileIn = ih("input", { type: "file", accept: "image/*", multiple: true, style: "display:none" });
+    const draw = async () => {
+      grid.innerHTML = "";
+      let files = {};
+      try { files = await imgList(); } catch (e) { status.textContent = "Could not read the library: " + e.message; }
+      const q = search.value.trim().toLowerCase();
+      const names = Object.keys(files).filter(n => !q || n.includes(q)).sort();
+      if (!names.length) grid.append(ih("p", { class: "imglib-dim" }, Object.keys(files).length ? "No picture matches." : "The library is empty: upload a picture."));
+      for (const n of names) {
+        const url = imgUrl(n), m = files[n];
+        const th = ih("div", { class: "th" }, url ? ih("img", { src: url }) : ih("span", { class: "imglib-dim" }, "…"));
+        const card = ih("div", { class: "imglib-card", title: n, onclick: () => { if (opts.pick) close(n); } }, th, ih("span", {}, n), ih("small", {}, `${m.w}×${m.h} · ${imgKb(m.size)}`),
+          ih("div", { class: "tools" },
+            ih("button", { title: "Cut / edit this picture", onclick: async e => { e.stopPropagation(); const r = await imgPrep({ name: n }); if (r) draw(); } }, "✎"),
+            ih("button", { class: "bad", title: "Delete it from the library", onclick: async e => { e.stopPropagation(); if (!confirm(`Delete '${n}' from the library? Puppets that use it will show nothing.`)) return; try { await imgRemove(n); } catch (x) { status.textContent = x.message; } draw(); } }, "✕")));
+        grid.append(card);
+      }
+    };
+    IMG.pickerDraw = () => { if (box.isConnected) draw(); else IMG.pickerDraw = null; };
+    const upload = async files => {
+      for (const f of files) { const r = await imgPrep({ file: f }); if (r && opts.pick && files.length === 1 && opts.pickAfterUpload !== false) { close(r); return; } }
+      draw();
+    };
+    fileIn.addEventListener("change", () => upload([...fileIn.files]));
+    search.addEventListener("input", draw);
+    box.append(ih("h3", {}, opts.title || "Pictures"), ih("div", { class: "imglib-row" }, ih("button", { class: "pri", onclick: () => fileIn.click() }, "⬆ Upload a picture…"), fileIn, ih("button", { onclick: async () => { try { const items = await navigator.clipboard.read(); for (const it of items) { const t = it.types.find(x => x.startsWith("image/")); if (t) { const b = await it.getType(t); const r = await imgPrep({ file: b }); if (r && opts.pick) { close(r); return; } draw(); return; } } status.textContent = "No picture on the clipboard."; } catch (e) { status.textContent = "Paste with Ctrl+V while this window is open, or use Upload."; } }, title: "Use a picture you copied" }, "📋 Paste"), search, status),
+      ih("p", { class: "imglib-dim" }, "Upload a drawing or photo, then cut out the part you need (crop, remove the paper, erase with a brush). PNG transparency is kept. " + (opts.pick ? "Click a picture to use it." : "")),
+      grid, ih("div", { class: "imglib-row" }, ih("button", { onclick: () => close(null) }, opts.pick ? "Cancel" : "Close")));
+    document.addEventListener("paste", async function onp(e) { if (!box.isConnected) { document.removeEventListener("paste", onp); return; } if (document.querySelector(".imglib-back") !== box.parentNode && document.querySelectorAll(".imglib-back").length > 1) return; const f = [...(e.clipboardData ? e.clipboardData.files : [])].find(x => x.type.startsWith("image/")); if (f) { e.preventDefault(); const r = await imgPrep({ file: f }); if (r && opts.pick) close(r); else draw(); } });
+    box.addEventListener("dragover", e => e.preventDefault());
+    box.addEventListener("drop", e => { e.preventDefault(); const fs = [...e.dataTransfer.files].filter(f => f.type.startsWith("image/")); if (fs.length) upload(fs); });
+    draw();
+  });
+}
+
+// ---------------------------------------------------------------- the cut-out tool
+/* opts.file (a File / Blob to start from) or opts.name (a library picture to edit). Resolves the saved name, or null. */
+async function imgPrep(opts) {
+  return imgModal(async (box, close) => {
+    box.__locked = true;   // a click outside must not throw the work away
+    const MAXV = 620;
+    let work = document.createElement("canvas"), base = document.createElement("canvas");
+    let src;
+    try { src = opts.file ? URL.createObjectURL(opts.file) : imgUrl(opts.name) || await (async () => { await imgList(); for (let i = 0; i < 60 && !imgUrl(opts.name); i++) await new Promise(r => setTimeout(r, 100)); return imgUrl(opts.name); })(); }
+    catch (e) { box.append(ih("p", {}, "Cannot open that picture."), ih("button", { onclick: () => close(null) }, "Close")); return; }
+    let image;
+    try { image = await imgLoad(src); } catch (e) { box.append(ih("p", {}, e.message), ih("button", { onclick: () => close(null) }, "Close")); return; }
+    work.width = base.width = image.naturalWidth; work.height = base.height = image.naturalHeight;
+    work.getContext("2d").drawImage(image, 0, 0); base.getContext("2d").drawImage(image, 0, 0);
+    const baseName = opts.name || imgSlug(opts.file && opts.file.name ? opts.file.name : "picture") || "picture";
+    const st = { tool: "bg", tol: 28, soft: 10, contiguous: true, brush: 24, brushMode: "erase", crop: null, lasso: [], maxSide: 512 };
+    const undo = [];
+    const view = ih("canvas"), over = ih("canvas", { style: "position:absolute;left:0;top:0;cursor:crosshair" });
+    const stage = ih("div", { class: "imglib-stage" }, view, over);
+    const info = ih("span", { class: "imglib-dim" }, ""), hint = ih("p", { class: "imglib-dim", style: "margin:2px 0" }, "");
+    let scale = 1;
+    const snap = () => { undo.push(work.getContext("2d").getImageData(0, 0, work.width, work.height)); if (undo.length > 14) undo.shift(); };
+    const layout = () => {
+      scale = Math.min(1, MAXV / Math.max(work.width, work.height)) * (st.zoom || 1);
+      view.width = over.width = Math.max(1, Math.round(work.width * scale)); view.height = over.height = Math.max(1, Math.round(work.height * scale));
+      redraw();
+    };
+    const redraw = () => {
+      const c = view.getContext("2d"); c.clearRect(0, 0, view.width, view.height); c.imageSmoothingEnabled = scale < 1; c.drawImage(work, 0, 0, view.width, view.height);
+      const o = over.getContext("2d"); o.clearRect(0, 0, over.width, over.height);
+      if (st.tool === "crop" && st.crop) { const [a, b, w, h] = st.crop.map(v => v * scale); o.fillStyle = "#0008"; o.fillRect(0, 0, over.width, over.height); o.clearRect(a, b, w, h); o.strokeStyle = "#35d0ff"; o.lineWidth = 2; o.strokeRect(a, b, w, h); }
+      if (st.tool === "lasso" && st.lasso.length) { o.strokeStyle = "#ff4fd0"; o.lineWidth = 2; o.fillStyle = "#ff4fd022"; o.beginPath(); st.lasso.forEach((p, i) => i ? o.lineTo(p[0] * scale, p[1] * scale) : o.moveTo(p[0] * scale, p[1] * scale)); o.stroke(); if (st.lasso.length > 2) o.fill(); st.lasso.forEach(p => { o.fillStyle = "#ff4fd0"; o.fillRect(p[0] * scale - 3, p[1] * scale - 3, 6, 6); }); }
+      info.textContent = `${work.width} × ${work.height} px` + (st.maxSide && Math.max(work.width, work.height) > st.maxSide ? ` → saved at ${Math.round(work.width * st.maxSide / Math.max(work.width, work.height))} × ${Math.round(work.height * st.maxSide / Math.max(work.width, work.height))}` : "");
+    };
+    const px = e => { const r = over.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * work.width, (e.clientY - r.top) / r.height * work.height]; };
+
+    // --- the operations
+    const flood = (x0, y0, mode) => {
+      const ctx = work.getContext("2d"), W = work.width, H = work.height, img = ctx.getImageData(0, 0, W, H), d = img.data;
+      const seeds = Array.isArray(x0) ? x0 : [[x0, y0]];
+      const tolD = st.tol * 4.41, softD = st.soft * 4.41, lim = tolD + softD;   // colour distance (0..441)
+      const ref = seeds.map(([sx, sy]) => { const i = (Math.max(0, Math.min(H - 1, Math.round(sy))) * W + Math.max(0, Math.min(W - 1, Math.round(sx)))) * 4; return [d[i], d[i + 1], d[i + 2], d[i + 3]]; });
+      const dist = (i, r) => { if (d[i + 3] < 8) return 0; return Math.hypot(d[i] - r[0], d[i + 1] - r[1], d[i + 2] - r[2]); };
+      const apply = (i, dd) => { const f = dd <= tolD ? 0 : (softD > 0 ? Math.min(1, (dd - tolD) / softD) : 1); d[i + 3] = Math.min(d[i + 3], Math.round(d[i + 3] * f)); };
+      if (!st.contiguous) { for (let i = 0; i < d.length; i += 4) { let best = 1e9; for (const r of ref) best = Math.min(best, dist(i, r)); if (best <= lim) apply(i, best); } }
+      else {
+        const seen = new Uint8Array(W * H), stack = [];
+        seeds.forEach(([sx, sy], k) => { const x = Math.max(0, Math.min(W - 1, Math.round(sx))), y = Math.max(0, Math.min(H - 1, Math.round(sy))); stack.push([x, y, k]); });
+        while (stack.length) {
+          const [x, y, k] = stack.pop(), p = y * W + x;
+          if (x < 0 || y < 0 || x >= W || y >= H || seen[p]) continue;
+          const dd = dist(p * 4, ref[k]);
+          if (dd > lim) continue;
+          seen[p] = 1; apply(p * 4, dd);
+          stack.push([x + 1, y, k], [x - 1, y, k], [x, y + 1, k], [x, y - 1, k]);
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+    };
+    const cornerSeeds = () => { const W = work.width - 1, H = work.height - 1; return [[0, 0], [W, 0], [0, H], [W, H]]; };
+    const trim = () => {
+      const ctx = work.getContext("2d"), W = work.width, H = work.height, d = ctx.getImageData(0, 0, W, H).data; let x0 = W, y0 = H, x1 = -1, y1 = -1;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      if (x1 < 0) { hint.textContent = "The picture is empty."; return; }
+      cropTo(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+    };
+    const cropTo = (x, y, w, h) => {
+      x = Math.max(0, Math.round(x)); y = Math.max(0, Math.round(y)); w = Math.max(1, Math.min(work.width - x, Math.round(w))); h = Math.max(1, Math.min(work.height - y, Math.round(h)));
+      snap(); const nw = document.createElement("canvas"); nw.width = w; nw.height = h; nw.getContext("2d").drawImage(work, x, y, w, h, 0, 0, w, h);
+      const nb = document.createElement("canvas"); nb.width = w; nb.height = h; nb.getContext("2d").drawImage(base, x, y, w, h, 0, 0, w, h);
+      work = nw; base = nb; st.crop = null; layout();
+    };
+    const polyOp = keep => {
+      if (st.lasso.length < 3) { hint.textContent = "Click at least three points around the part first."; return; }
+      snap(); const ctx = work.getContext("2d");
+      if (keep) { const t = document.createElement("canvas"); t.width = work.width; t.height = work.height; const tc = t.getContext("2d"); tc.beginPath(); st.lasso.forEach((p, i) => i ? tc.lineTo(p[0], p[1]) : tc.moveTo(p[0], p[1])); tc.closePath(); tc.clip(); tc.drawImage(work, 0, 0); ctx.clearRect(0, 0, work.width, work.height); ctx.drawImage(t, 0, 0); }
+      else { ctx.save(); ctx.globalCompositeOperation = "destination-out"; ctx.beginPath(); st.lasso.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); ctx.fill(); ctx.restore(); }
+      st.lasso = []; redraw();
+    };
+    const stroke = (x, y) => {
+      const ctx = work.getContext("2d"), rr = st.brush / 2 / scale;   // the brush size is in screen pixels: rr is its radius in picture pixels
+      ctx.save(); ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2);
+      if (st.brushMode === "erase") { ctx.globalCompositeOperation = "destination-out"; ctx.fill(); }
+      else { ctx.clip(); ctx.clearRect(x - rr, y - rr, rr * 2, rr * 2); ctx.drawImage(base, 0, 0); }
+      ctx.restore();
+    };
+
+    // --- pointer
+    let drag = null;
+    over.addEventListener("pointerdown", e => {
+      const [x, y] = px(e); over.setPointerCapture(e.pointerId);
+      if (st.tool === "bg") { snap(); if (e.shiftKey) flood(cornerSeeds()); else flood(x, y); redraw(); }
+      else if (st.tool === "crop") { drag = { x0: x, y0: y }; st.crop = [x, y, 0, 0]; }
+      else if (st.tool === "brush") { snap(); drag = { brush: true }; stroke(x, y); redraw(); }
+      else if (st.tool === "lasso") { if (st.lasso.length > 2 && Math.hypot(x - st.lasso[0][0], y - st.lasso[0][1]) * scale < 8) { hint.textContent = "Closed: choose Keep inside or Erase inside."; } else st.lasso.push([x, y]); redraw(); }
+    });
+    over.addEventListener("pointermove", e => {
+      const [x, y] = px(e);
+      if (st.tool === "brush") { redraw(); const o = over.getContext("2d"); o.strokeStyle = st.brushMode === "erase" ? "#ff6b7a" : "#5fe39a"; o.lineWidth = 1.5; o.beginPath(); o.arc(x * scale, y * scale, st.brush / 2, 0, Math.PI * 2); o.stroke(); }
+      if (!drag) return;
+      if (drag.brush) { stroke(x, y); redraw(); const o = over.getContext("2d"); o.strokeStyle = "#fff"; o.beginPath(); o.arc(x * scale, y * scale, st.brush / 2, 0, Math.PI * 2); o.stroke(); }
+      else if (drag.x0 !== undefined) { st.crop = [Math.min(drag.x0, x), Math.min(drag.y0, y), Math.abs(x - drag.x0), Math.abs(y - drag.y0)]; redraw(); }
+    });
+    over.addEventListener("pointerup", () => { drag = null; });
+    over.addEventListener("dblclick", () => { if (st.tool === "lasso") hint.textContent = "Choose Keep inside or Erase inside."; });
+    over.addEventListener("wheel", e => { e.preventDefault(); st.zoom = Math.max(0.25, Math.min(8, (st.zoom || 1) * (e.deltaY < 0 ? 1.15 : 1 / 1.15))); layout(); }, { passive: false });
+
+    // --- the panel
+    const hints = {
+      bg: "Click the background (the paper) to remove it. Shift-click removes the colour found at all four corners. Raise “how alike” if some paper is left; use “soft edge” to avoid a jagged outline.",
+      crop: "Drag a rectangle round the part you want, then press Crop.",
+      brush: "Paint over what to erase (or switch to Restore to bring erased parts back). The circle shows the brush size.",
+      lasso: "Click points round the part you want, click the first point to close the shape, then Keep inside (cut it out) or Erase inside.",
+    };
+    const toolBtns = {};
+    const controls = ih("div", {});
+    const setTool = t => { st.tool = t; st.crop = null; st.lasso = []; for (const k in toolBtns) toolBtns[k].classList.toggle("on", k === t); hint.textContent = hints[t]; over.style.cursor = t === "brush" ? "none" : "crosshair"; drawControls(); redraw(); };
+    const num = (key, min, max, step) => { const i = ih("input", { type: "range", min, max, step, value: st[key], style: "width:130px" }); const v = ih("span", { class: "imglib-dim", style: "min-width:26px" }, st[key]); i.addEventListener("input", () => { st[key] = Number(i.value); v.textContent = i.value; if (key === "brush") redraw(); }); return [i, v]; };
+    const drawControls = () => {
+      controls.innerHTML = "";
+      if (st.tool === "bg") controls.append(ih("div", { class: "imglib-row" }, ih("span", {}, "how alike"), num("tol", 0, 80, 1), ih("span", {}, "soft edge"), num("soft", 0, 40, 1),
+        ih("label", {}, ih("input", { type: "checkbox", checked: st.contiguous, onchange: e => { st.contiguous = e.target.checked; } }), " only touching where I click"), ih("button", { onclick: () => { snap(); flood(cornerSeeds()); redraw(); } }, "Auto: remove the corner colour")));
+      if (st.tool === "crop") controls.append(ih("div", { class: "imglib-row" }, ih("button", { class: "pri", onclick: () => { if (!st.crop || st.crop[2] < 2) { hint.textContent = "Drag a rectangle first."; return; } cropTo(...st.crop); } }, "Crop"), ih("button", { onclick: trim }, "Trim empty edges")));
+      if (st.tool === "brush") controls.append(ih("div", { class: "imglib-row" }, ih("button", { class: st.brushMode === "erase" ? "on" : "", onclick: () => { st.brushMode = "erase"; drawControls(); } }, "Erase"), ih("button", { class: st.brushMode === "restore" ? "on" : "", onclick: () => { st.brushMode = "restore"; drawControls(); } }, "Restore"), ih("span", {}, "size"), num("brush", 4, 140, 1), ih("span", { class: "imglib-dim" }, "(screen pixels)")));
+      if (st.tool === "lasso") controls.append(ih("div", { class: "imglib-row" }, ih("button", { class: "pri", onclick: () => polyOp(true) }, "Keep inside"), ih("button", { onclick: () => polyOp(false) }, "Erase inside"), ih("button", { onclick: () => { st.lasso.pop(); redraw(); } }, "↶ last point"), ih("button", { onclick: () => { st.lasso = []; redraw(); } }, "clear")));
+    };
+    for (const [k, label] of [["bg", "Remove background"], ["crop", "Crop"], ["brush", "Brush"], ["lasso", "Lasso"]]) toolBtns[k] = ih("button", { onclick: () => setTool(k) }, label);
+    const nameIn = ih("input", { type: "text", value: baseName, style: "width:180px" });
+    const sizeSel = ih("select", {}, [["0", "original size"], ["1024", "up to 1024 px"], ["512", "up to 512 px"], ["256", "up to 256 px"], ["128", "up to 128 px"]].map(([v, l]) => ih("option", { value: v }, l)));
+    sizeSel.value = String(st.maxSide); sizeSel.addEventListener("change", () => { st.maxSide = Number(sizeSel.value); redraw(); });
+    const status = ih("span", { class: "imglib-dim" }, "");
+    const save = async () => {
+      const name = imgSlug(nameIn.value);
+      if (!name) { status.textContent = "Give it a name."; return; }
+      const full = name + ".png", exists = IMG.files && IMG.files[full] && full !== opts.name;
+      if (exists && !confirm(`'${full}' is already in the library. Replace it?`)) return;
+      let out = work;
+      const longest = Math.max(work.width, work.height);
+      if (st.maxSide && longest > st.maxSide) { const f = st.maxSide / longest; out = document.createElement("canvas"); out.width = Math.max(1, Math.round(work.width * f)); out.height = Math.max(1, Math.round(work.height * f)); const c = out.getContext("2d"); c.imageSmoothingQuality = "high"; c.drawImage(work, 0, 0, out.width, out.height); }
+      status.textContent = "saving…";
+      try { const blob = await new Promise(r => out.toBlob(r, "image/png")); await imgPut(full, blob, out.width, out.height, (i, n) => { status.textContent = `uploading ${i} / ${n}`; }); close(full); }
+      catch (e) { status.textContent = e.message; }
+    };
+    box.append(ih("h3", {}, opts.name ? "Edit " + opts.name : "Cut out a picture"),
+      ih("div", { class: "imglib-row" }, ...Object.values(toolBtns), ih("span", { class: "imglib-dim" }, "|"), ih("button", { onclick: () => { const u = undo.pop(); if (u) { work.getContext("2d").putImageData(u, 0, 0); redraw(); } } }, "↶ Undo"), ih("button", { onclick: trim }, "Trim edges"),
+        ih("button", { onclick: () => { st.zoom = 1; layout(); } }, "fit"), ih("span", { class: "imglib-dim" }, "wheel zooms"), info),
+      controls, hint, stage,
+      ih("div", { class: "imglib-row", style: "margin-top:10px" }, ih("span", {}, "name"), nameIn, ih("span", { class: "imglib-dim" }, ".png"), ih("span", {}, "size"), sizeSel, ih("button", { class: "pri", onclick: save }, "Save to the library"), ih("button", { onclick: () => close(null) }, "Cancel"), status));
+    layout(); setTool("bg");
+  });
+}
+
+
 const firebaseConfig = {
   apiKey: "AIzaSyBt9shBGY0WwQABtPpLVAz-YVrO4pKmwFU",
   authDomain: "survivorator-studio.firebaseapp.com",
@@ -430,6 +724,29 @@ function safePrompt(message, defaultValue){
 }
 let nickname = '';
 try{ nickname = (localStorage.getItem('ncnr_editor_nickname') || '').trim(); }catch(e){}
+imgBind({db: () => firestoreDb, collection, doc, getDocs, setDoc, deleteDoc}); IMG.user = () => nickname || 'Anonymous';   // the picture library (tools/shared/image_lib.js)
+IMG.onChange = () => { try{ renderStage(); renderParts(); }catch(e){ /* starting */ } };
+window.__weapons = { get parts(){ return parts; }, IMG, imgPicker, imgPrep, imgList, addPicturePart: (...a) => addPicturePart(...a), renderStage: () => renderStage(), renderParts: () => renderParts() };   // for the checks and for debugging
+/* A picture part: a polygon of four corners (top-left, top-right, bottom-right, bottom-left) with a library picture laid on them (part.img = {file, w, h}); only weapons and shots (the game draws
+   effects and entities another way). The picture is placed by an SVG matrix from the corners as they are on the stage. */
+function imgMatrixAbs(abs, img){ const w = img.w || 1, h = img.h || 1, a = abs[0], b = abs[1], d = abs[3]; return 'matrix(' + [(b[0]-a[0])/w, (b[1]-a[1])/w, (d[0]-a[0])/h, (d[1]-a[1])/h, a[0], a[1]].join(' ') + ')'; }
+function imgSizeOfPart(part){ const a = part.points[0], b = part.points[1], d = part.points[3]; return [Math.hypot(b[0]-a[0], b[1]-a[1]), Math.hypot(d[0]-a[0], d[1]-a[1])]; }
+function setPartImgSize(part, w, h){
+  const [cw, ch] = imgSizeOfPart(part); if(cw < 1e-6 || ch < 1e-6) return;
+  const a = part.points[0], b = part.points[1], c = part.points[2], d = part.points[3], cx = (a[0]+c[0])/2, cy = (a[1]+c[1])/2;
+  const ux = (b[0]-a[0])/cw, uy = (b[1]-a[1])/cw, vx = (d[0]-a[0])/ch, vy = (d[1]-a[1])/ch, k = (sx, sy) => [round3(cx + ux*w*sx + vx*h*sy), round3(cy + uy*w*sx + vy*h*sy)];
+  part.points = [k(-0.5,-0.5), k(0.5,-0.5), k(0.5,0.5), k(-0.5,0.5)];
+}
+async function addPicturePart(){
+  if(!current) return;
+  if(current.ns === 'effects' || current.ns === 'entities'){ setStatus('', 'Pictures work in weapons and shots (the game draws effects another way)'); return; }
+  const file = await imgPicker({pick: true, title: 'Pick a picture for a part'}); if(!file) return;
+  const files = await imgList(), m = files[file] || {w: 64, h: 64};
+  const b = shapeBounds(), diag = Math.hypot(b.maxX-b.minX, b.maxY-b.minY) || 20, W = Math.max(diag * 0.5, 4), H = W * (m.h || 1) / (m.w || 1);
+  parts.push({type:'polygon', color:'#ffffffff', pos:[0,0], rot:0, scale:[1,1], points:[[-W/2,-H/2],[W/2,-H/2],[W/2,H/2],[-W/2,H/2]].map(p => [round3(p[0]), round3(p[1])]), img:{file, w:m.w || 64, h:m.h || 64}});
+  activePart = parts.length-1; activeVert = -1;
+  renderStage(); renderParts(); saveNow();
+}
 if(!nickname){
   nickname = (safePrompt('What should we call you? (shown to other editors of this tool)') || '').trim() || 'Anonymous';
   try{ localStorage.setItem('ncnr_editor_nickname', nickname); }catch(e){}
@@ -2005,7 +2322,13 @@ function renderStage(){
       if(ow > 0 && part.type === 'polygon') stage.appendChild(el('polygon', {points:ptsAttr, fill:ocHex, 'fill-opacity':oa, stroke:ocHex, 'stroke-opacity':oa, 'stroke-width':ow*2, 'stroke-linejoin':'round', style:'pointer-events:none'}));
       else if(ow > 0) stage.appendChild(el('polyline', {points:ptsAttr, fill:'none', stroke:ocHex, 'stroke-opacity':oa, 'stroke-width':(part.width||1) + ow*2, 'stroke-linecap':'butt', 'stroke-linejoin':'round', style:'pointer-events:none'}));
     }
-    if(part.type === 'polygon'){
+    if(part.type === 'polygon' && part.img){   // a picture: the image on the four corners, and an invisible polygon over it to click on
+      const url = imgUrl(part.img.file);
+      if(url && abs.length === 4) stage.appendChild(el('image', {href:url, width:part.img.w || 1, height:part.img.h || 1, transform:imgMatrixAbs(abs, part.img), preserveAspectRatio:'none', opacity:op * parseHex8(part.color).a, style:'pointer-events:none;' + blend}));
+      fillEl = el('polygon', {points:ptsAttr, fill:'transparent', style:'fill:transparent;' + (url ? '' : 'stroke:#ff4fd0;stroke-dasharray:1 1;'), 'data-pi':pi, class:'part-fill'+(isActive?' active-part':'')});
+      stage.appendChild(fillEl);
+      if(!previewOn) stage.appendChild(el('polygon', {points:ptsAttr, class:'part-outline'+(isActive?'':' dim')}));
+    } else if(part.type === 'polygon'){
       fillEl = el('polygon', {points:ptsAttr, fill:fillCol, 'fill-opacity':op, style:blend, 'data-pi':pi, class:'part-fill'+(isActive?' active-part':'')});
       stage.appendChild(fillEl);
       if(!previewOn) stage.appendChild(el('polygon', {points:ptsAttr, class:'part-outline'+(isActive?'':' dim')}));
@@ -2019,14 +2342,14 @@ function renderStage(){
       stage.appendChild(fillEl);
       if(!previewOn) stage.appendChild(el('polyline', {points:ptsAttr, class:'part-outline'+(isActive?'':' dim')}));
     }
-    if(part.type === 'polygon' && !previewOn){ crossingsOf(abs).forEach(c => crossMarks.push(c)); }
+    if(part.type === 'polygon' && !part.img && !previewOn){ crossingsOf(abs).forEach(c => crossMarks.push(c)); }
     if(isActive) lateDraw = () => {
       const ov = part.type === 'polygon'
         ? el('polygon', {points:ptsAttr, fill:'transparent', class:'active-hit', style:'cursor:move'})
         : el('polyline', {points:ptsAttr, fill:'none', stroke:'transparent', 'stroke-width':Math.max((part.width||1)*4, shapeLabelR*1.5), class:'active-hit', style:'cursor:move'});
       ov.addEventListener('pointerdown', ev => onPartDown(ev, pi));   // an invisible copy on top: drag the active part from anywhere over it, even under other parts
       stage.appendChild(ov);
-      if(!part._hideVerts){
+      if(!part._hideVerts && !part.img){
         const nAbs = abs.length, edges = part.type === 'line' ? nAbs - 1 : nAbs, ms = shapeHandleR * 1.8;
         for(let ei = 0; ei < edges; ei++){
           const a = abs[ei], b = abs[(ei + 1) % nAbs];
@@ -2061,7 +2384,7 @@ function renderStage(){
     stage.appendChild(el('line', {x1:x - r*0.6, y1:y + r*0.6, x2:x + r*0.6, y2:y - r*0.6, stroke:'#ff3b5c', 'stroke-width':sw, style:'pointer-events:none'}));
   });
   const cw = document.getElementById('crossWarn');
-  if(cw){ const nBad = parts.filter(pt => pt.type === 'polygon' && crossingsOf(partAbsPoints(pt, null)).length).length; cw.hidden = !nBad; cw.textContent = '\u26a0 ' + nBad + ' crossing'; }
+  if(cw){ const nBad = parts.filter(pt => pt.type === 'polygon' && !pt.img && crossingsOf(partAbsPoints(pt, null)).length).length; cw.hidden = !nBad; cw.textContent = '\u26a0 ' + nBad + ' crossing'; }
   drawMuzzleMark();
 }
 
@@ -2325,12 +2648,16 @@ function renderParts(){
       <div class="part-row-top">
         <span class="part-drag-handle" data-role="drag" title="Drag to reorder (front/back)">&#8942;&#8942;</span>
         <div class="swatch"><input type="color" value="${hex}" data-role="hex"></div>
-        <div class="part-type">${part.type} · ${part.points.length}pt${part.type==='polygon' && crossingsOf(part.points).length ? ' <span style="color:#ff3b5c" title="This polygon crosses itself: the game cannot draw it (the part vanishes)">\u26a0 crosses</span>' : ''}</div>
+        <div class="part-type">${part.img ? '\u{1F5BC} ' + part.img.file : part.type + ' · ' + part.points.length + 'pt'}${part.type==='polygon' && !part.img && crossingsOf(part.points).length ? ' <span style="color:#ff3b5c" title="This polygon crosses itself: the game cannot draw it (the part vanishes)">\u26a0 crosses</span>' : ''}</div>
         <button class="part-eye${part._hidden ? ' off' : ''}" data-role="eye" title="${part._hidden ? 'Hidden while editing (this view only, nothing is saved). Click to show.' : 'Hide this part while editing (this view only, nothing is saved)'}">${part._hidden ? '\u25cc' : '\u25c9'}</button>
         <button class="part-dup" title="Duplicate part" data-role="dup">Dup</button>
         <button class="part-del" title="Delete part" data-role="del">&times;</button>
       </div>
-      <div class="part-row-controls">
+      ${part.img ? `<div class="part-tools"><span class="lbl">picture</span>
+        <button class="btn" data-role="imgrep" title="Use another picture from the library">Replace…</button>
+        <button class="btn" data-role="imgedit" title="Cut / edit the picture itself (it changes everywhere it is used)">Cut…</button>
+        <button class="btn" data-role="imgfit" title="Give the part the picture's own shape (keeps its width)">Match shape</button></div>` : ''}
+      <div class="part-row-controls"${part.img ? ' hidden' : ''}>
         <button class="verts-toggle-btn" data-role="toggleverts" title="Vertex handles only ever show on the active part anyway — this just also hides them WHEN it's active, so a dense point ring (a Circle preset, say) doesn't blanket the shape and leave nothing else to grab for dragging">
           ${part._hideVerts ? '○ Points hidden — tap to show' : '● Points shown — tap to hide'}
         </button>
@@ -2435,6 +2762,12 @@ function renderParts(){
         renderStage(); scheduleSave();
       });
       widthInput.addEventListener('change', saveNow);
+    }
+    if(part.img){
+      const itool = (role, fn) => { const b = row.querySelector('[data-role='+role+']'); if(b) b.addEventListener('click', e => { e.stopPropagation(); activePart = pi; fn(); }); };
+      itool('imgrep', async () => { const f2 = await imgPicker({pick: true, title: 'Pick another picture'}); if(!f2) return; const files = await imgList(), m = files[f2] || {w: part.img.w, h: part.img.h}; part.img = {file:f2, w:m.w, h:m.h}; const w0 = imgSizeOfPart(part)[0]; setPartImgSize(part, w0, w0 * m.h / m.w); afterTransform(); });
+      itool('imgedit', async () => { const r = await imgPrep({name: part.img.file}); if(r){ renderStage(); renderParts(); } });
+      itool('imgfit', () => { const w0 = imgSizeOfPart(part)[0]; setPartImgSize(part, w0, w0 * part.img.h / part.img.w); afterTransform(); });
     }
     const tool = (role, fn) => { const b = row.querySelector('[data-role='+role+']'); if(b) b.addEventListener('click', e=>{ e.stopPropagation(); activePart = pi; fn(); }); };
     tool('rotl90', () => rotatePartDeg(pi, -90)); tool('rotl15', () => rotatePartDeg(pi, -15));
@@ -2665,6 +2998,7 @@ document.getElementById('btnAddPart').addEventListener('click', ()=>{
   activePart = parts.length-1; activeVert=-1;
   renderStage(); renderParts(); saveNow();
 });
+document.getElementById('btnAddPicture').addEventListener('click', () => addPicturePart());
 document.getElementById('btnDelPoint').addEventListener('click', ()=>{
   if(!current || activeVert<0) return;
   const part = parts[activePart];

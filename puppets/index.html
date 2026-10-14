@@ -132,6 +132,7 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
   <span class="pill" id="status">starting…</span>
   <button type="button" id="saveBtn" class="primary">Save</button>
   <button type="button" id="reloadBtn" title="Discard local edits and load the saved version">Reload saved</button>
+  <button type="button" id="picsBtn" title="The picture library: upload drawings, cut out the parts you want">Pictures</button>
   <button type="button" id="exportBtn">Export JSON</button>
   <button type="button" id="importBtn">Import JSON</button>
   <button type="button" id="resetBtn" class="danger" title="Back to the art that ships in the game">Reset to game default</button>
@@ -187,6 +188,299 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/fireba
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 import { getFirestore, collection, doc as fsDoc, getDoc, setDoc, addDoc, getDocs, deleteDoc, query, orderBy, limit }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+
+/* The shared IMAGE LIBRARY of the art studios: upload a picture (png / jpg / webp / gif), cut out the part you want (crop, remove the background, erase / restore with a brush, lasso), keep its PNG
+   transparency, and use it as a part of a puppet (and, later, a weapon, a menu, the arena). Pictures live in the cloud collection `images` (images/<name>.png = {size, chunks, w, h, mime, updated, by},
+   the PNG as base64 text in images/<name>.png/chunks/0000 ... because a Firestore document holds 1 MiB) and `py tools/studio/sync_images.py pull` writes them to art/library/ for the game.
+   A host page calls imgBind({db: () => db, collection, doc, getDocs, setDoc, deleteDoc}) once, then uses imgPicker() / imgUrl(). */
+
+const IMG_CHUNK = 900000;                // base64 characters per chunk document (sync_images.py uses the same number)
+const IMG_MAX_BYTES = 3 * 1024 * 1024;   // the biggest PNG the library stores
+const IMG = { pickerDraw: null, fs: null, files: null, urls: {}, fetching: {}, onChange: () => {}, loading: null, user: () => "someone" };
+
+function imgBind(fs) { IMG.fs = fs; }
+function imgNotify(name) { IMG.onChange(name); if (IMG.pickerDraw) IMG.pickerDraw(); }
+const imgSlug = s => String(s).toLowerCase().replace(/\.[a-z0-9]+$/, "").replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+const imgKb = n => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+
+async function imgList(force) {
+  if (IMG.files && !force) return IMG.files;
+  if (IMG.loading && !force) return IMG.loading;
+  IMG.loading = (async () => {
+    const out = {};
+    if (IMG.fs && IMG.fs.db()) {
+      const snap = await IMG.fs.getDocs(IMG.fs.collection(IMG.fs.db(), "images"));
+      snap.docs.forEach(d => { const x = d.data(); out[d.id] = { size: x.size || 0, chunks: x.chunks || 0, w: x.w || 0, h: x.h || 0 }; });
+    }
+    IMG.files = out; IMG.loading = null; return out;
+  })();
+  return IMG.loading;
+}
+/* a picture's data URL, or null while it is being fetched (IMG.onChange() runs when it arrives) */
+function imgUrl(name) {
+  if (IMG.urls[name]) return IMG.urls[name];
+  if (!name || IMG.fetching[name] || !IMG.fs || !IMG.fs.db()) return null;
+  IMG.fetching[name] = true;
+  IMG.fs.getDocs(IMG.fs.collection(IMG.fs.db(), "images", name, "chunks")).then(snap => {
+    const b64 = snap.docs.sort((a, b) => (a.id < b.id ? -1 : 1)).map(d => d.data().data).join("");
+    if (b64) IMG.urls[name] = "data:image/png;base64," + b64;
+    delete IMG.fetching[name]; imgNotify(name);
+  }).catch(e => { delete IMG.fetching[name]; console.error(e); });
+  return null;
+}
+async function imgPut(name, blob, w, h, progress) {
+  const u8 = new Uint8Array(await blob.arrayBuffer());
+  if (u8.length > IMG_MAX_BYTES) throw new Error(`${name} is ${imgKb(u8.length)}: over the ${imgKb(IMG_MAX_BYTES)} limit (cut it smaller)`);
+  let s = ""; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  const b64 = btoa(s), n = Math.max(1, Math.ceil(b64.length / IMG_CHUNK)), fs = IMG.fs, db = fs.db();
+  for (let i = 0; i < n; i++) { await fs.setDoc(fs.doc(db, "images", name, "chunks", String(i).padStart(4, "0")), { data: b64.slice(i * IMG_CHUNK, (i + 1) * IMG_CHUNK) }); if (progress) progress(i + 1, n); }
+  const old = IMG.files && IMG.files[name];
+  if (old) for (let i = n; i < old.chunks; i++) await fs.deleteDoc(fs.doc(db, "images", name, "chunks", String(i).padStart(4, "0")));
+  await fs.setDoc(fs.doc(db, "images", name), { size: u8.length, chunks: n, w, h, mime: "image/png", updated: new Date().toISOString(), by: IMG.user() });
+  IMG.files = IMG.files || {}; IMG.files[name] = { size: u8.length, chunks: n, w, h };
+  IMG.urls[name] = "data:image/png;base64," + b64;
+  imgNotify(name);
+}
+async function imgRemove(name) {
+  const meta = (IMG.files || {})[name], fs = IMG.fs, db = fs.db();
+  for (let i = 0; i < (meta ? meta.chunks : 0); i++) await fs.deleteDoc(fs.doc(db, "images", name, "chunks", String(i).padStart(4, "0")));
+  await fs.deleteDoc(fs.doc(db, "images", name));
+  if (IMG.files) delete IMG.files[name]; delete IMG.urls[name];
+}
+/* a picture as a loaded <img> (for drawing in a canvas) */
+function imgLoad(src) { return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("that file is not a picture the browser can read")); i.src = src; }); }
+
+// ---------------------------------------------------------------- the small DOM kit and the style
+function ih(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) { if (v === false || v === null || v === undefined) continue; if (k === "class") e.className = v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else if (k === "value") e.value = v; else if (k === "checked") e.checked = !!v; else e.setAttribute(k, v === true ? "" : v); }
+  for (const kid of kids.flat(Infinity)) if (kid !== null && kid !== undefined && kid !== false) e.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  return e;
+}
+(function injectImgStyle() {
+  if (document.getElementById("imglib-style")) return;
+  const s = document.createElement("style"); s.id = "imglib-style";
+  s.textContent = `
+.imglib-back{position:fixed;inset:0;background:#000b;z-index:200;display:grid;place-items:center;font:13px system-ui,sans-serif}
+.imglib-box{background:#171929;color:#e9eaf6;border:1px solid #35d0ff;border-radius:10px;padding:14px 16px;width:min(1000px,96vw);max-height:94vh;overflow:auto;box-shadow:0 10px 40px #000a}
+.imglib-box h3{margin:0 0 8px;font-size:15px} .imglib-box button,.imglib-box select,.imglib-box input{font:inherit}
+.imglib-box button{background:#22263f;color:#e9eaf6;border:1px solid #333a63;border-radius:5px;padding:5px 10px;cursor:pointer} .imglib-box button:hover{border-color:#35d0ff}
+.imglib-box button.on,.imglib-box button.pri{background:#35d0ff;color:#04121a;border-color:#35d0ff;font-weight:600} .imglib-box button.bad{border-color:#ff6b7a;color:#ff9aa5}
+.imglib-box input[type=text],.imglib-box input[type=number],.imglib-box select{background:#0e1020;color:#e9eaf6;border:1px solid #333a63;border-radius:4px;padding:4px 6px}
+.imglib-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0} .imglib-dim{color:#8f94b8}
+.imglib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin:8px 0}
+.imglib-card{border:1px solid #333a63;border-radius:6px;padding:6px;background:#0e1020;cursor:pointer;position:relative;display:flex;flex-direction:column;gap:3px} .imglib-card:hover{border-color:#35d0ff}
+.imglib-card .th{height:92px;display:grid;place-items:center;border-radius:4px;overflow:hidden;background-image:linear-gradient(45deg,#1c1f33 25%,transparent 25%,transparent 75%,#1c1f33 75%),linear-gradient(45deg,#1c1f33 25%,#12142a 25%,#12142a 75%,#1c1f33 75%);background-size:14px 14px;background-position:0 0,7px 7px}
+.imglib-card .th img{max-width:100%;max-height:100%;object-fit:contain} .imglib-card small{color:#8f94b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imglib-card .tools{position:absolute;top:3px;right:3px;display:none;gap:3px} .imglib-card:hover .tools{display:flex} .imglib-card .tools button{padding:1px 6px}
+.imglib-stage{position:relative;display:inline-block;border:1px solid #333a63;border-radius:6px;line-height:0;background-image:linear-gradient(45deg,#2a2e4a 25%,transparent 25%,transparent 75%,#2a2e4a 75%),linear-gradient(45deg,#2a2e4a 25%,#1a1d33 25%,#1a1d33 75%,#2a2e4a 75%);background-size:16px 16px;background-position:0 0,8px 8px;max-width:100%;overflow:auto}
+.imglib-stage canvas{display:block;touch-action:none}
+`;
+  document.head.appendChild(s);
+})();
+function imgModal(build) {
+  return new Promise(resolve => {
+    const back = ih("div", { class: "imglib-back" }), box = ih("div", { class: "imglib-box" });
+    back.append(box); document.body.append(back);
+    const close = v => { back.remove(); resolve(v); };
+    back.addEventListener("mousedown", e => { if (e.target === back && !box.__locked) close(null); });
+    build(box, close);
+  });
+}
+
+// ---------------------------------------------------------------- the picker (the library)
+/* Pick a picture from the library (opts.pick = true), or just manage it. Resolves the chosen name, or null. */
+async function imgPicker(opts = {}) {
+  return imgModal(async (box, close) => {
+    const grid = ih("div", { class: "imglib-grid" }), status = ih("span", { class: "imglib-dim" }, "");
+    const search = ih("input", { type: "text", placeholder: "search…", style: "width:160px" });
+    const fileIn = ih("input", { type: "file", accept: "image/*", multiple: true, style: "display:none" });
+    const draw = async () => {
+      grid.innerHTML = "";
+      let files = {};
+      try { files = await imgList(); } catch (e) { status.textContent = "Could not read the library: " + e.message; }
+      const q = search.value.trim().toLowerCase();
+      const names = Object.keys(files).filter(n => !q || n.includes(q)).sort();
+      if (!names.length) grid.append(ih("p", { class: "imglib-dim" }, Object.keys(files).length ? "No picture matches." : "The library is empty: upload a picture."));
+      for (const n of names) {
+        const url = imgUrl(n), m = files[n];
+        const th = ih("div", { class: "th" }, url ? ih("img", { src: url }) : ih("span", { class: "imglib-dim" }, "…"));
+        const card = ih("div", { class: "imglib-card", title: n, onclick: () => { if (opts.pick) close(n); } }, th, ih("span", {}, n), ih("small", {}, `${m.w}×${m.h} · ${imgKb(m.size)}`),
+          ih("div", { class: "tools" },
+            ih("button", { title: "Cut / edit this picture", onclick: async e => { e.stopPropagation(); const r = await imgPrep({ name: n }); if (r) draw(); } }, "✎"),
+            ih("button", { class: "bad", title: "Delete it from the library", onclick: async e => { e.stopPropagation(); if (!confirm(`Delete '${n}' from the library? Puppets that use it will show nothing.`)) return; try { await imgRemove(n); } catch (x) { status.textContent = x.message; } draw(); } }, "✕")));
+        grid.append(card);
+      }
+    };
+    IMG.pickerDraw = () => { if (box.isConnected) draw(); else IMG.pickerDraw = null; };
+    const upload = async files => {
+      for (const f of files) { const r = await imgPrep({ file: f }); if (r && opts.pick && files.length === 1 && opts.pickAfterUpload !== false) { close(r); return; } }
+      draw();
+    };
+    fileIn.addEventListener("change", () => upload([...fileIn.files]));
+    search.addEventListener("input", draw);
+    box.append(ih("h3", {}, opts.title || "Pictures"), ih("div", { class: "imglib-row" }, ih("button", { class: "pri", onclick: () => fileIn.click() }, "⬆ Upload a picture…"), fileIn, ih("button", { onclick: async () => { try { const items = await navigator.clipboard.read(); for (const it of items) { const t = it.types.find(x => x.startsWith("image/")); if (t) { const b = await it.getType(t); const r = await imgPrep({ file: b }); if (r && opts.pick) { close(r); return; } draw(); return; } } status.textContent = "No picture on the clipboard."; } catch (e) { status.textContent = "Paste with Ctrl+V while this window is open, or use Upload."; } }, title: "Use a picture you copied" }, "📋 Paste"), search, status),
+      ih("p", { class: "imglib-dim" }, "Upload a drawing or photo, then cut out the part you need (crop, remove the paper, erase with a brush). PNG transparency is kept. " + (opts.pick ? "Click a picture to use it." : "")),
+      grid, ih("div", { class: "imglib-row" }, ih("button", { onclick: () => close(null) }, opts.pick ? "Cancel" : "Close")));
+    document.addEventListener("paste", async function onp(e) { if (!box.isConnected) { document.removeEventListener("paste", onp); return; } if (document.querySelector(".imglib-back") !== box.parentNode && document.querySelectorAll(".imglib-back").length > 1) return; const f = [...(e.clipboardData ? e.clipboardData.files : [])].find(x => x.type.startsWith("image/")); if (f) { e.preventDefault(); const r = await imgPrep({ file: f }); if (r && opts.pick) close(r); else draw(); } });
+    box.addEventListener("dragover", e => e.preventDefault());
+    box.addEventListener("drop", e => { e.preventDefault(); const fs = [...e.dataTransfer.files].filter(f => f.type.startsWith("image/")); if (fs.length) upload(fs); });
+    draw();
+  });
+}
+
+// ---------------------------------------------------------------- the cut-out tool
+/* opts.file (a File / Blob to start from) or opts.name (a library picture to edit). Resolves the saved name, or null. */
+async function imgPrep(opts) {
+  return imgModal(async (box, close) => {
+    box.__locked = true;   // a click outside must not throw the work away
+    const MAXV = 620;
+    let work = document.createElement("canvas"), base = document.createElement("canvas");
+    let src;
+    try { src = opts.file ? URL.createObjectURL(opts.file) : imgUrl(opts.name) || await (async () => { await imgList(); for (let i = 0; i < 60 && !imgUrl(opts.name); i++) await new Promise(r => setTimeout(r, 100)); return imgUrl(opts.name); })(); }
+    catch (e) { box.append(ih("p", {}, "Cannot open that picture."), ih("button", { onclick: () => close(null) }, "Close")); return; }
+    let image;
+    try { image = await imgLoad(src); } catch (e) { box.append(ih("p", {}, e.message), ih("button", { onclick: () => close(null) }, "Close")); return; }
+    work.width = base.width = image.naturalWidth; work.height = base.height = image.naturalHeight;
+    work.getContext("2d").drawImage(image, 0, 0); base.getContext("2d").drawImage(image, 0, 0);
+    const baseName = opts.name || imgSlug(opts.file && opts.file.name ? opts.file.name : "picture") || "picture";
+    const st = { tool: "bg", tol: 28, soft: 10, contiguous: true, brush: 24, brushMode: "erase", crop: null, lasso: [], maxSide: 512 };
+    const undo = [];
+    const view = ih("canvas"), over = ih("canvas", { style: "position:absolute;left:0;top:0;cursor:crosshair" });
+    const stage = ih("div", { class: "imglib-stage" }, view, over);
+    const info = ih("span", { class: "imglib-dim" }, ""), hint = ih("p", { class: "imglib-dim", style: "margin:2px 0" }, "");
+    let scale = 1;
+    const snap = () => { undo.push(work.getContext("2d").getImageData(0, 0, work.width, work.height)); if (undo.length > 14) undo.shift(); };
+    const layout = () => {
+      scale = Math.min(1, MAXV / Math.max(work.width, work.height)) * (st.zoom || 1);
+      view.width = over.width = Math.max(1, Math.round(work.width * scale)); view.height = over.height = Math.max(1, Math.round(work.height * scale));
+      redraw();
+    };
+    const redraw = () => {
+      const c = view.getContext("2d"); c.clearRect(0, 0, view.width, view.height); c.imageSmoothingEnabled = scale < 1; c.drawImage(work, 0, 0, view.width, view.height);
+      const o = over.getContext("2d"); o.clearRect(0, 0, over.width, over.height);
+      if (st.tool === "crop" && st.crop) { const [a, b, w, h] = st.crop.map(v => v * scale); o.fillStyle = "#0008"; o.fillRect(0, 0, over.width, over.height); o.clearRect(a, b, w, h); o.strokeStyle = "#35d0ff"; o.lineWidth = 2; o.strokeRect(a, b, w, h); }
+      if (st.tool === "lasso" && st.lasso.length) { o.strokeStyle = "#ff4fd0"; o.lineWidth = 2; o.fillStyle = "#ff4fd022"; o.beginPath(); st.lasso.forEach((p, i) => i ? o.lineTo(p[0] * scale, p[1] * scale) : o.moveTo(p[0] * scale, p[1] * scale)); o.stroke(); if (st.lasso.length > 2) o.fill(); st.lasso.forEach(p => { o.fillStyle = "#ff4fd0"; o.fillRect(p[0] * scale - 3, p[1] * scale - 3, 6, 6); }); }
+      info.textContent = `${work.width} × ${work.height} px` + (st.maxSide && Math.max(work.width, work.height) > st.maxSide ? ` → saved at ${Math.round(work.width * st.maxSide / Math.max(work.width, work.height))} × ${Math.round(work.height * st.maxSide / Math.max(work.width, work.height))}` : "");
+    };
+    const px = e => { const r = over.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * work.width, (e.clientY - r.top) / r.height * work.height]; };
+
+    // --- the operations
+    const flood = (x0, y0, mode) => {
+      const ctx = work.getContext("2d"), W = work.width, H = work.height, img = ctx.getImageData(0, 0, W, H), d = img.data;
+      const seeds = Array.isArray(x0) ? x0 : [[x0, y0]];
+      const tolD = st.tol * 4.41, softD = st.soft * 4.41, lim = tolD + softD;   // colour distance (0..441)
+      const ref = seeds.map(([sx, sy]) => { const i = (Math.max(0, Math.min(H - 1, Math.round(sy))) * W + Math.max(0, Math.min(W - 1, Math.round(sx)))) * 4; return [d[i], d[i + 1], d[i + 2], d[i + 3]]; });
+      const dist = (i, r) => { if (d[i + 3] < 8) return 0; return Math.hypot(d[i] - r[0], d[i + 1] - r[1], d[i + 2] - r[2]); };
+      const apply = (i, dd) => { const f = dd <= tolD ? 0 : (softD > 0 ? Math.min(1, (dd - tolD) / softD) : 1); d[i + 3] = Math.min(d[i + 3], Math.round(d[i + 3] * f)); };
+      if (!st.contiguous) { for (let i = 0; i < d.length; i += 4) { let best = 1e9; for (const r of ref) best = Math.min(best, dist(i, r)); if (best <= lim) apply(i, best); } }
+      else {
+        const seen = new Uint8Array(W * H), stack = [];
+        seeds.forEach(([sx, sy], k) => { const x = Math.max(0, Math.min(W - 1, Math.round(sx))), y = Math.max(0, Math.min(H - 1, Math.round(sy))); stack.push([x, y, k]); });
+        while (stack.length) {
+          const [x, y, k] = stack.pop(), p = y * W + x;
+          if (x < 0 || y < 0 || x >= W || y >= H || seen[p]) continue;
+          const dd = dist(p * 4, ref[k]);
+          if (dd > lim) continue;
+          seen[p] = 1; apply(p * 4, dd);
+          stack.push([x + 1, y, k], [x - 1, y, k], [x, y + 1, k], [x, y - 1, k]);
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+    };
+    const cornerSeeds = () => { const W = work.width - 1, H = work.height - 1; return [[0, 0], [W, 0], [0, H], [W, H]]; };
+    const trim = () => {
+      const ctx = work.getContext("2d"), W = work.width, H = work.height, d = ctx.getImageData(0, 0, W, H).data; let x0 = W, y0 = H, x1 = -1, y1 = -1;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      if (x1 < 0) { hint.textContent = "The picture is empty."; return; }
+      cropTo(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+    };
+    const cropTo = (x, y, w, h) => {
+      x = Math.max(0, Math.round(x)); y = Math.max(0, Math.round(y)); w = Math.max(1, Math.min(work.width - x, Math.round(w))); h = Math.max(1, Math.min(work.height - y, Math.round(h)));
+      snap(); const nw = document.createElement("canvas"); nw.width = w; nw.height = h; nw.getContext("2d").drawImage(work, x, y, w, h, 0, 0, w, h);
+      const nb = document.createElement("canvas"); nb.width = w; nb.height = h; nb.getContext("2d").drawImage(base, x, y, w, h, 0, 0, w, h);
+      work = nw; base = nb; st.crop = null; layout();
+    };
+    const polyOp = keep => {
+      if (st.lasso.length < 3) { hint.textContent = "Click at least three points around the part first."; return; }
+      snap(); const ctx = work.getContext("2d");
+      if (keep) { const t = document.createElement("canvas"); t.width = work.width; t.height = work.height; const tc = t.getContext("2d"); tc.beginPath(); st.lasso.forEach((p, i) => i ? tc.lineTo(p[0], p[1]) : tc.moveTo(p[0], p[1])); tc.closePath(); tc.clip(); tc.drawImage(work, 0, 0); ctx.clearRect(0, 0, work.width, work.height); ctx.drawImage(t, 0, 0); }
+      else { ctx.save(); ctx.globalCompositeOperation = "destination-out"; ctx.beginPath(); st.lasso.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); ctx.fill(); ctx.restore(); }
+      st.lasso = []; redraw();
+    };
+    const stroke = (x, y) => {
+      const ctx = work.getContext("2d"), rr = st.brush / 2 / scale;   // the brush size is in screen pixels: rr is its radius in picture pixels
+      ctx.save(); ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2);
+      if (st.brushMode === "erase") { ctx.globalCompositeOperation = "destination-out"; ctx.fill(); }
+      else { ctx.clip(); ctx.clearRect(x - rr, y - rr, rr * 2, rr * 2); ctx.drawImage(base, 0, 0); }
+      ctx.restore();
+    };
+
+    // --- pointer
+    let drag = null;
+    over.addEventListener("pointerdown", e => {
+      const [x, y] = px(e); over.setPointerCapture(e.pointerId);
+      if (st.tool === "bg") { snap(); if (e.shiftKey) flood(cornerSeeds()); else flood(x, y); redraw(); }
+      else if (st.tool === "crop") { drag = { x0: x, y0: y }; st.crop = [x, y, 0, 0]; }
+      else if (st.tool === "brush") { snap(); drag = { brush: true }; stroke(x, y); redraw(); }
+      else if (st.tool === "lasso") { if (st.lasso.length > 2 && Math.hypot(x - st.lasso[0][0], y - st.lasso[0][1]) * scale < 8) { hint.textContent = "Closed: choose Keep inside or Erase inside."; } else st.lasso.push([x, y]); redraw(); }
+    });
+    over.addEventListener("pointermove", e => {
+      const [x, y] = px(e);
+      if (st.tool === "brush") { redraw(); const o = over.getContext("2d"); o.strokeStyle = st.brushMode === "erase" ? "#ff6b7a" : "#5fe39a"; o.lineWidth = 1.5; o.beginPath(); o.arc(x * scale, y * scale, st.brush / 2, 0, Math.PI * 2); o.stroke(); }
+      if (!drag) return;
+      if (drag.brush) { stroke(x, y); redraw(); const o = over.getContext("2d"); o.strokeStyle = "#fff"; o.beginPath(); o.arc(x * scale, y * scale, st.brush / 2, 0, Math.PI * 2); o.stroke(); }
+      else if (drag.x0 !== undefined) { st.crop = [Math.min(drag.x0, x), Math.min(drag.y0, y), Math.abs(x - drag.x0), Math.abs(y - drag.y0)]; redraw(); }
+    });
+    over.addEventListener("pointerup", () => { drag = null; });
+    over.addEventListener("dblclick", () => { if (st.tool === "lasso") hint.textContent = "Choose Keep inside or Erase inside."; });
+    over.addEventListener("wheel", e => { e.preventDefault(); st.zoom = Math.max(0.25, Math.min(8, (st.zoom || 1) * (e.deltaY < 0 ? 1.15 : 1 / 1.15))); layout(); }, { passive: false });
+
+    // --- the panel
+    const hints = {
+      bg: "Click the background (the paper) to remove it. Shift-click removes the colour found at all four corners. Raise “how alike” if some paper is left; use “soft edge” to avoid a jagged outline.",
+      crop: "Drag a rectangle round the part you want, then press Crop.",
+      brush: "Paint over what to erase (or switch to Restore to bring erased parts back). The circle shows the brush size.",
+      lasso: "Click points round the part you want, click the first point to close the shape, then Keep inside (cut it out) or Erase inside.",
+    };
+    const toolBtns = {};
+    const controls = ih("div", {});
+    const setTool = t => { st.tool = t; st.crop = null; st.lasso = []; for (const k in toolBtns) toolBtns[k].classList.toggle("on", k === t); hint.textContent = hints[t]; over.style.cursor = t === "brush" ? "none" : "crosshair"; drawControls(); redraw(); };
+    const num = (key, min, max, step) => { const i = ih("input", { type: "range", min, max, step, value: st[key], style: "width:130px" }); const v = ih("span", { class: "imglib-dim", style: "min-width:26px" }, st[key]); i.addEventListener("input", () => { st[key] = Number(i.value); v.textContent = i.value; if (key === "brush") redraw(); }); return [i, v]; };
+    const drawControls = () => {
+      controls.innerHTML = "";
+      if (st.tool === "bg") controls.append(ih("div", { class: "imglib-row" }, ih("span", {}, "how alike"), num("tol", 0, 80, 1), ih("span", {}, "soft edge"), num("soft", 0, 40, 1),
+        ih("label", {}, ih("input", { type: "checkbox", checked: st.contiguous, onchange: e => { st.contiguous = e.target.checked; } }), " only touching where I click"), ih("button", { onclick: () => { snap(); flood(cornerSeeds()); redraw(); } }, "Auto: remove the corner colour")));
+      if (st.tool === "crop") controls.append(ih("div", { class: "imglib-row" }, ih("button", { class: "pri", onclick: () => { if (!st.crop || st.crop[2] < 2) { hint.textContent = "Drag a rectangle first."; return; } cropTo(...st.crop); } }, "Crop"), ih("button", { onclick: trim }, "Trim empty edges")));
+      if (st.tool === "brush") controls.append(ih("div", { class: "imglib-row" }, ih("button", { class: st.brushMode === "erase" ? "on" : "", onclick: () => { st.brushMode = "erase"; drawControls(); } }, "Erase"), ih("button", { class: st.brushMode === "restore" ? "on" : "", onclick: () => { st.brushMode = "restore"; drawControls(); } }, "Restore"), ih("span", {}, "size"), num("brush", 4, 140, 1), ih("span", { class: "imglib-dim" }, "(screen pixels)")));
+      if (st.tool === "lasso") controls.append(ih("div", { class: "imglib-row" }, ih("button", { class: "pri", onclick: () => polyOp(true) }, "Keep inside"), ih("button", { onclick: () => polyOp(false) }, "Erase inside"), ih("button", { onclick: () => { st.lasso.pop(); redraw(); } }, "↶ last point"), ih("button", { onclick: () => { st.lasso = []; redraw(); } }, "clear")));
+    };
+    for (const [k, label] of [["bg", "Remove background"], ["crop", "Crop"], ["brush", "Brush"], ["lasso", "Lasso"]]) toolBtns[k] = ih("button", { onclick: () => setTool(k) }, label);
+    const nameIn = ih("input", { type: "text", value: baseName, style: "width:180px" });
+    const sizeSel = ih("select", {}, [["0", "original size"], ["1024", "up to 1024 px"], ["512", "up to 512 px"], ["256", "up to 256 px"], ["128", "up to 128 px"]].map(([v, l]) => ih("option", { value: v }, l)));
+    sizeSel.value = String(st.maxSide); sizeSel.addEventListener("change", () => { st.maxSide = Number(sizeSel.value); redraw(); });
+    const status = ih("span", { class: "imglib-dim" }, "");
+    const save = async () => {
+      const name = imgSlug(nameIn.value);
+      if (!name) { status.textContent = "Give it a name."; return; }
+      const full = name + ".png", exists = IMG.files && IMG.files[full] && full !== opts.name;
+      if (exists && !confirm(`'${full}' is already in the library. Replace it?`)) return;
+      let out = work;
+      const longest = Math.max(work.width, work.height);
+      if (st.maxSide && longest > st.maxSide) { const f = st.maxSide / longest; out = document.createElement("canvas"); out.width = Math.max(1, Math.round(work.width * f)); out.height = Math.max(1, Math.round(work.height * f)); const c = out.getContext("2d"); c.imageSmoothingQuality = "high"; c.drawImage(work, 0, 0, out.width, out.height); }
+      status.textContent = "saving…";
+      try { const blob = await new Promise(r => out.toBlob(r, "image/png")); await imgPut(full, blob, out.width, out.height, (i, n) => { status.textContent = `uploading ${i} / ${n}`; }); close(full); }
+      catch (e) { status.textContent = e.message; }
+    };
+    box.append(ih("h3", {}, opts.name ? "Edit " + opts.name : "Cut out a picture"),
+      ih("div", { class: "imglib-row" }, ...Object.values(toolBtns), ih("span", { class: "imglib-dim" }, "|"), ih("button", { onclick: () => { const u = undo.pop(); if (u) { work.getContext("2d").putImageData(u, 0, 0); redraw(); } } }, "↶ Undo"), ih("button", { onclick: trim }, "Trim edges"),
+        ih("button", { onclick: () => { st.zoom = 1; layout(); } }, "fit"), ih("span", { class: "imglib-dim" }, "wheel zooms"), info),
+      controls, hint, stage,
+      ih("div", { class: "imglib-row", style: "margin-top:10px" }, ih("span", {}, "name"), nameIn, ih("span", { class: "imglib-dim" }, ".png"), ih("span", {}, "size"), sizeSel, ih("button", { class: "pri", onclick: save }, "Save to the library"), ih("button", { onclick: () => close(null) }, "Cancel"), status));
+    layout(); setTool("bg");
+  });
+}
+
 
 let DEFAULT = {"anim":{"aim_arm_front":0.0,"aim_blend":14.0,"arm_idle":0.03,"arm_swing_front":0.2,"arm_swing_side":0.55,"bob_front":1.5,"bob_side":1.6,"body_lean_side":0.07,"breathe":0.012,"head_bob":0.5,"idle_bob":0.25,"idle_rate":2.2,"kick_decay":7.0,"kick_dist":2.6,"leg_lift_front":3.2,"leg_lift_side":2.0,"leg_rot_front":0.1,"leg_swing_side":0.62,"move_blend":12.0,"puppet_scale":1.0,"run_rate":11.0,"run_speed_max":1.6,"run_speed_min":0.5,"run_speed_ref":210.0,"tail_flap_front":0.09,"tail_flap_side":0.14,"tail_lean_side":0.2,"tail_sway":0.03,"torso_lean_front":0.05,"torso_lean_side":0.04},"rig":{"back":{"armL":17,"armR":18,"coat":16,"head":19,"legL":11,"legR":12,"tailL":13,"tailR":14,"torso":15},"front":{"armL":7,"armR":8,"coat":6,"head":9,"legL":1,"legR":2,"tailL":3,"tailR":4,"torso":5},"side":{"armFar":21,"armNear":27,"coat":25,"head":28,"legFar":22,"legNear":26,"tail":23,"torso":24}},"version":1,"views":{"back":{"id":10,"kids":[{"id":11,"kids":[{"poly":{"accent":0,"color":"22222e","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.2,0.0],[3.2,0.0],[3.6,12.0],[-3.6,12.0]]}},{"poly":{"accent":0,"color":"3b3b4c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-4.8,11.0],[4.8,11.0],[5.4,19.5],[-5.8,19.5]]}},{"poly":{"accent":1,"color":"ff4dd8","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-4.9,14.2],[4.9,14.2],[5.1,15.9],[-5.1,15.9]]}}],"name":"legL","oc":"05050d","ow":0.0,"pos":[-4.5,10.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":12,"kids":[{"poly":{"accent":0,"color":"22222e","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.2,0.0],[3.2,0.0],[3.6,12.0],[-3.6,12.0]]}},{"poly":{"accent":0,"color":"3b3b4c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-4.8,11.0],[4.8,11.0],[5.4,19.5],[-5.8,19.5]]}},{"poly":{"accent":1,"color":"ff4dd8","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-4.9,14.2],[4.9,14.2],[5.1,15.9],[-5.1,15.9]]}}],"name":"legR","oc":"05050d","ow":0.0,"pos":[4.5,10.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":13,"kids":[{"poly":{"accent":0,"color":"232230","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-2.5,0.0],[2.5,0.0],[3.5,9.0],[1.0,7.0],[-1.0,10.0],[-3.0,8.0]]}}],"name":"tailL","oc":"05050d","ow":0.0,"pos":[-11.0,15.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":14,"kids":[{"poly":{"accent":0,"color":"232230","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-2.5,0.0],[2.5,0.0],[3.0,8.0],[1.0,10.0],[-1.0,7.0],[-3.5,9.0]]}}],"name":"tailR","oc":"05050d","ow":0.0,"pos":[11.0,15.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":15,"kids":[{"id":16,"kids":[{"poly":{"accent":0,"color":"2f2e3c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-11.0,-11.5],[-6.0,-13.5],[6.0,-13.5],[11.0,-11.5],[12.5,-3.0],[12.5,6.0],[13.5,14.0],[14.0,21.0],[9.0,18.5],[6.5,21.5],[3.5,18.5],[0.0,22.0],[-3.5,18.5],[-6.5,21.5],[-9.0,18.5],[-14.0,21.0],[-13.5,14.0],[-12.5,6.0],[-12.5,-3.0]]}},{"poly":{"accent":0,"color":"232230","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-0.7,-13.0],[0.7,-13.0],[1.0,21.0],[-1.0,21.0]]}},{"poly":{"accent":0,"color":"232230","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-12.0,2.8],[12.0,2.8],[12.0,5.0],[-12.0,5.0]]}},{"poly":{"accent":0,"color":"4a4a60","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-10.0,-15.0],[-6.0,-14.0],[0.0,-13.5],[6.0,-14.0],[10.0,-15.0],[11.0,-8.0],[6.0,-5.0],[0.0,-4.0],[-6.0,-5.0],[-11.0,-8.0]]}}],"name":"coat","oc":"05050d","ow":0.0,"pos":[0.0,0.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"}],"name":"torso","oc":"05050d","ow":0.0,"pos":[0.0,0.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":17,"kids":[{"poly":{"accent":0,"color":"2f2e3c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.3,-2.5],[3.3,-2.5],[3.6,8.5],[-3.6,8.5]]}},{"poly":{"accent":0,"color":"4a4a60","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.1,8.0],[3.1,8.0],[3.0,15.0],[-3.0,15.0]]}},{"poly":{"accent":1,"color":"ff4dd8","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-3.1,10.0],[3.1,10.0],[3.1,11.6],[-3.1,11.6]]}},{"poly":{"accent":0,"color":"2a2a37","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-2.6,14.5],[2.6,14.5],[2.4,19.5],[-2.4,19.5]]}},{"poly":{"accent":0,"color":"f3bb9c","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-1.3,18.2],[1.3,18.2],[1.3,19.7],[-1.3,19.7]]}},{"poly":{"accent":2,"color":"2fd0ff","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[0.4,-2.0],[3.0,-2.0],[3.0,2.6],[0.4,2.6]]}}],"name":"armL","oc":"05050d","ow":0.0,"pos":[-12.5,-9.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":18,"kids":[{"poly":{"accent":0,"color":"2f2e3c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.3,-2.5],[3.3,-2.5],[3.6,8.5],[-3.6,8.5]]}},{"poly":{"accent":0,"color":"4a4a60","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.1,8.0],[3.1,8.0],[3.0,15.0],[-3.0,15.0]]}},{"poly":{"accent":1,"color":"ff4dd8","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-3.1,10.0],[3.1,10.0],[3.1,11.6],[-3.1,11.6]]}},{"poly":{"accent":0,"color":"2a2a37","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-2.6,14.5],[2.6,14.5],[2.4,19.5],[-2.4,19.5]]}},{"poly":{"accent":0,"color":"f3bb9c","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-1.3,18.2],[1.3,18.2],[1.3,19.7],[-1.3,19.7]]}}],"name":"armR","oc":"05050d","ow":0.0,"pos":[12.5,-9.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":19,"kids":[{"poly":{"accent":0,"color":"d78f7c","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-2.5,6.0],[2.5,6.0],[2.0,9.5],[-2.0,9.5]]}},{"poly":{"accent":0,"color":"f4b800","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-7.5,-4.5],[-8.5,-8.0],[-6.5,-11.0],[-4.5,-9.0],[-3.0,-13.0],[-1.0,-10.0],[1.0,-13.5],[3.0,-10.0],[5.0,-12.5],[6.5,-9.0],[8.5,-11.0],[8.5,-4.0],[7.5,2.0],[5.0,7.0],[2.0,9.0],[-2.0,9.0],[-5.0,7.0],[-7.5,2.0]]}},{"poly":{"accent":0,"color":"b87d00","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-5.0,1.0],[-3.0,5.0],[-1.0,3.0],[-2.0,7.5],[-4.5,6.0]]}},{"poly":{"accent":0,"color":"b87d00","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[5.0,1.0],[3.0,5.0],[1.0,3.0],[2.0,7.5],[4.5,6.0]]}},{"poly":{"accent":0,"color":"ffe066","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-1.5,-8.0],[1.5,-8.0],[2.5,-3.0],[-2.5,-3.0]]}}],"name":"head","oc":"05050d","ow":0.0,"pos":[0.0,-17.5],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"}],"name":"back","oc":"05050d","ow":0.0,"pos":[0.0,0.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},"front":{"id":0,"kids":[{"id":1,"kids":[{"poly":{"accent":0,"color":"22222e","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.2,0.0],[3.2,0.0],[3.6,12.0],[-3.6,12.0]]}},{"poly":{"accent":0,"color":"3b3b4c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-4.8,11.0],[4.8,11.0],[5.4,19.5],[-5.8,19.5]]}},{"poly":{"accent":1,"color":"ff4dd8","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-4.9,14.2],[4.9,14.2],[5.1,15.9],[-5.1,15.9]]}}],"name":"legL","oc":"05050d","ow":0.0,"pos":[-4.5,10.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":2,"kids":[{"poly":{"accent":0,"color":"22222e","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.2,0.0],[3.2,0.0],[3.6,12.0],[-3.6,12.0]]}},{"poly":{"accent":0,"color":"3b3b4c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-4.8,11.0],[4.8,11.0],[5.4,19.5],[-5.8,19.5]]}},{"poly":{"accent":1,"color":"ff4dd8","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-4.9,14.2],[4.9,14.2],[5.1,15.9],[-5.1,15.9]]}}],"name":"legR","oc":"05050d","ow":0.0,"pos":[4.5,10.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":3,"kids":[{"poly":{"accent":0,"color":"232230","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-2.5,0.0],[2.5,0.0],[3.5,9.0],[1.0,7.0],[-1.0,10.0],[-3.0,8.0]]}}],"name":"tailL","oc":"05050d","ow":0.0,"pos":[-11.0,15.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":4,"kids":[{"poly":{"accent":0,"color":"232230","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-2.5,0.0],[2.5,0.0],[3.0,8.0],[1.0,10.0],[-1.0,7.0],[-3.5,9.0]]}}],"name":"tailR","oc":"05050d","ow":0.0,"pos":[11.0,15.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":5,"kids":[{"id":6,"kids":[{"poly":{"accent":0,"color":"2f2e3c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-11.0,-11.5],[-6.0,-13.5],[6.0,-13.5],[11.0,-11.5],[12.5,-3.0],[12.5,6.0],[13.5,14.0],[14.0,21.0],[9.0,18.5],[6.5,21.5],[3.5,18.5],[0.0,22.0],[-3.5,18.5],[-6.5,21.5],[-9.0,18.5],[-14.0,21.0],[-13.5,14.0],[-12.5,6.0],[-12.5,-3.0]]}},{"poly":{"accent":0,"color":"14141c","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-4.2,-13.0],[4.2,-13.0],[4.8,7.0],[-4.8,7.0]]}},{"poly":{"accent":0,"color":"4a4a60","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-4.2,-13.0],[-7.5,-12.5],[-9.5,3.0],[-6.5,9.5],[-4.8,6.0]]}},{"poly":{"accent":0,"color":"4a4a60","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[4.8,6.0],[6.5,9.5],[9.5,3.0],[7.5,-12.5],[4.2,-13.0]]}},{"poly":{"accent":0,"color":"5e4331","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-9.0,3.2],[9.0,3.2],[9.0,5.6],[-9.0,5.6]]}},{"poly":{"accent":0,"color":"b3bac9","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-2.0,2.9],[2.0,2.9],[2.0,5.9],[-2.0,5.9]]}},{"poly":{"accent":0,"color":"4a4a60","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-10.0,-15.0],[-5.5,-12.2],[0.0,-11.0],[5.5,-12.2],[10.0,-15.0],[11.0,-8.5],[6.0,-6.5],[0.0,-8.0],[-6.0,-6.5],[-11.0,-8.5]]}}],"name":"coat","oc":"05050d","ow":0.0,"pos":[0.0,0.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"}],"name":"torso","oc":"05050d","ow":0.0,"pos":[0.0,0.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":7,"kids":[{"poly":{"accent":0,"color":"2f2e3c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.3,-2.5],[3.3,-2.5],[3.6,8.5],[-3.6,8.5]]}},{"poly":{"accent":0,"color":"4a4a60","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.1,8.0],[3.1,8.0],[3.0,15.0],[-3.0,15.0]]}},{"poly":{"accent":1,"color":"ff4dd8","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-3.1,10.0],[3.1,10.0],[3.1,11.6],[-3.1,11.6]]}},{"poly":{"accent":0,"color":"2a2a37","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-2.6,14.5],[2.6,14.5],[2.4,19.5],[-2.4,19.5]]}},{"poly":{"accent":0,"color":"f3bb9c","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-1.3,18.2],[1.3,18.2],[1.3,19.7],[-1.3,19.7]]}}],"name":"armL","oc":"05050d","ow":0.0,"pos":[-12.5,-9.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":8,"kids":[{"poly":{"accent":0,"color":"2f2e3c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.3,-2.5],[3.3,-2.5],[3.6,8.5],[-3.6,8.5]]}},{"poly":{"accent":0,"color":"4a4a60","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.1,8.0],[3.1,8.0],[3.0,15.0],[-3.0,15.0]]}},{"poly":{"accent":1,"color":"ff4dd8","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-3.1,10.0],[3.1,10.0],[3.1,11.6],[-3.1,11.6]]}},{"poly":{"accent":0,"color":"2a2a37","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-2.6,14.5],[2.6,14.5],[2.4,19.5],[-2.4,19.5]]}},{"poly":{"accent":0,"color":"f3bb9c","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-1.3,18.2],[1.3,18.2],[1.3,19.7],[-1.3,19.7]]}},{"poly":{"accent":2,"color":"2fd0ff","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[0.4,-2.0],[3.0,-2.0],[3.0,2.6],[0.4,2.6]]}}],"name":"armR","oc":"05050d","ow":0.0,"pos":[12.5,-9.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":9,"kids":[{"poly":{"accent":0,"color":"f3bb9c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-6.2,-4.5],[-6.8,0.0],[-5.6,5.0],[-2.8,8.0],[0.0,8.8],[2.8,8.0],[5.6,5.0],[6.8,0.0],[6.2,-4.5]]}},{"poly":{"accent":0,"color":"6fd8ff","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-4.7,-0.6],[-1.6,-0.6],[-1.6,1.0],[-4.7,1.0]]}},{"poly":{"accent":0,"color":"6fd8ff","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[4.7,1.0],[1.6,1.0],[1.6,-0.6],[4.7,-0.6]]}},{"poly":{"accent":0,"color":"7a5320","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-5.2,-2.4],[-1.2,-2.8],[-1.2,-1.8],[-5.2,-1.4]]}},{"poly":{"accent":0,"color":"7a5320","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[5.2,-1.4],[1.2,-1.8],[1.2,-2.8],[5.2,-2.4]]}},{"poly":{"accent":0,"color":"d78f7c","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-1.5,5.0],[1.5,5.0],[1.3,5.9],[-1.3,5.9]]}},{"poly":{"accent":0,"color":"f4b800","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-8.0,-1.5],[-8.5,-6.5],[-6.5,-10.5],[-4.5,-8.0],[-3.0,-12.5],[-1.0,-9.0],[1.0,-13.0],[3.0,-9.0],[5.0,-12.0],[6.5,-8.0],[8.5,-10.0],[8.5,-1.5],[6.6,-3.2],[5.0,-6.0],[2.0,-5.5],[0.0,-6.8],[-2.0,-5.5],[-5.0,-6.0],[-6.6,-3.2]]}},{"poly":{"accent":0,"color":"ffe066","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-2.0,-9.0],[0.0,-12.0],[2.0,-9.0],[0.0,-7.5]]}},{"poly":{"accent":0,"color":"b87d00","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-8.0,-1.5],[-6.6,-3.2],[-6.8,2.5],[-8.0,2.0]]}},{"poly":{"accent":0,"color":"b87d00","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[8.0,-1.5],[6.6,-3.2],[6.8,2.5],[8.0,2.0]]}}],"name":"head","oc":"05050d","ow":0.0,"pos":[0.0,-17.5],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"}],"name":"front","oc":"05050d","ow":0.0,"pos":[0.0,0.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},"side":{"id":20,"kids":[{"id":21,"kids":[{"poly":{"accent":0,"color":"2f2e3c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.3,-2.5],[3.3,-2.5],[3.6,8.5],[-3.6,8.5]]}},{"poly":{"accent":0,"color":"4a4a60","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.1,8.0],[3.1,8.0],[3.0,15.0],[-3.0,15.0]]}},{"poly":{"accent":1,"color":"ff4dd8","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-3.1,10.0],[3.1,10.0],[3.1,11.6],[-3.1,11.6]]}},{"poly":{"accent":0,"color":"2a2a37","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-2.6,14.5],[2.6,14.5],[2.4,19.5],[-2.4,19.5]]}},{"poly":{"accent":0,"color":"f3bb9c","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-1.3,18.2],[1.3,18.2],[1.3,19.7],[-1.3,19.7]]}}],"name":"armFar","oc":"05050d","ow":0.0,"pos":[0.5,-9.0],"rot":0.0,"scale":[1.0,1.0],"tint":"b8b8cc"},{"id":22,"kids":[{"poly":{"accent":0,"color":"22222e","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.0,0.0],[3.0,0.0],[3.2,12.0],[-3.2,12.0]]}},{"poly":{"accent":0,"color":"3b3b4c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-6.5,11.5],[3.4,11.5],[3.6,19.5],[-7.2,19.5]]}},{"poly":{"accent":1,"color":"ff4dd8","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-6.8,14.4],[3.5,14.4],[3.5,16.0],[-6.8,16.0]]}}],"name":"legFar","oc":"05050d","ow":0.0,"pos":[0.5,10.0],"rot":0.0,"scale":[1.0,1.0],"tint":"b8b8cc"},{"id":23,"kids":[{"poly":{"accent":0,"color":"232230","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-1.0,-10.0],[2.5,-4.0],[5.5,2.0],[8.0,11.0],[10.0,18.0],[4.5,14.5],[1.0,17.0],[-2.5,11.0],[-2.5,0.0]]}}],"name":"tail","oc":"05050d","ow":0.0,"pos":[4.0,8.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":24,"kids":[{"id":25,"kids":[{"poly":{"accent":0,"color":"2f2e3c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-6.5,-12.0],[2.5,-13.5],[6.5,-11.0],[7.5,-3.0],[7.5,6.0],[8.5,14.0],[9.0,21.0],[4.5,19.0],[1.5,22.5],[-1.5,19.0],[-5.5,21.5],[-8.0,18.0],[-7.5,6.0],[-7.0,-3.0]]}},{"poly":{"accent":0,"color":"14141c","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-7.0,-10.0],[-4.8,-10.0],[-5.3,6.0],[-7.5,6.0]]}},{"poly":{"accent":0,"color":"5e4331","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-7.6,3.2],[7.6,3.2],[7.6,5.6],[-7.6,5.6]]}},{"poly":{"accent":0,"color":"b3bac9","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-7.6,2.9],[-5.0,2.9],[-5.0,5.9],[-7.6,5.9]]}},{"poly":{"accent":0,"color":"4a4a60","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-6.5,-14.5],[3.5,-15.0],[6.0,-11.5],[4.0,-7.0],[-5.0,-7.5],[-7.0,-10.0]]}}],"name":"coat","oc":"05050d","ow":0.0,"pos":[0.0,0.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"}],"name":"torso","oc":"05050d","ow":0.0,"pos":[0.0,0.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":26,"kids":[{"poly":{"accent":0,"color":"22222e","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.0,0.0],[3.0,0.0],[3.2,12.0],[-3.2,12.0]]}},{"poly":{"accent":0,"color":"3b3b4c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-6.5,11.5],[3.4,11.5],[3.6,19.5],[-7.2,19.5]]}},{"poly":{"accent":1,"color":"ff4dd8","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-6.8,14.4],[3.5,14.4],[3.5,16.0],[-6.8,16.0]]}}],"name":"legNear","oc":"05050d","ow":0.0,"pos":[0.0,10.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":27,"kids":[{"poly":{"accent":0,"color":"2f2e3c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.3,-2.5],[3.3,-2.5],[3.6,8.5],[-3.6,8.5]]}},{"poly":{"accent":0,"color":"4a4a60","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-3.1,8.0],[3.1,8.0],[3.0,15.0],[-3.0,15.0]]}},{"poly":{"accent":1,"color":"ff4dd8","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-3.1,10.0],[3.1,10.0],[3.1,11.6],[-3.1,11.6]]}},{"poly":{"accent":0,"color":"2a2a37","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-2.6,14.5],[2.6,14.5],[2.4,19.5],[-2.4,19.5]]}},{"poly":{"accent":0,"color":"f3bb9c","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-1.3,18.2],[1.3,18.2],[1.3,19.7],[-1.3,19.7]]}},{"poly":{"accent":2,"color":"2fd0ff","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[0.4,-2.0],[3.0,-2.0],[3.0,2.6],[0.4,2.6]]}}],"name":"armNear","oc":"05050d","ow":0.0,"pos":[0.0,-9.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"},{"id":28,"kids":[{"poly":{"accent":0,"color":"f3bb9c","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-5.0,-4.6],[-6.6,-2.4],[-6.4,-0.6],[-8.4,1.4],[-6.5,2.3],[-6.9,3.6],[-5.4,4.2],[-5.2,6.8],[-1.8,8.6],[3.0,8.0],[4.4,3.0],[4.0,-4.2]]}},{"poly":{"accent":0,"color":"d78f7c","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[2.2,1.0],[4.4,1.0],[4.4,4.0],[2.2,4.0]]}},{"poly":{"accent":0,"color":"6fd8ff","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-5.6,-0.5],[-3.2,-0.5],[-3.2,1.0],[-5.6,1.0]]}},{"poly":{"accent":0,"color":"7a5320","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-6.2,-2.4],[-2.8,-2.8],[-2.8,-1.8],[-6.2,-1.5]]}},{"poly":{"accent":0,"color":"d78f7c","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-6.6,3.2],[-4.8,3.4],[-4.8,4.1],[-6.6,3.9]]}},{"poly":{"accent":0,"color":"f4b800","name":"","oc":"05050d","outline":true,"ow":0.5,"pts":[[-5.4,-4.2],[-6.4,-8.8],[-3.6,-8.2],[-3.4,-12.6],[-0.8,-9.6],[1.4,-13.8],[3.2,-9.6],[6.0,-12.2],[6.4,-8.0],[8.8,-9.0],[8.6,-3.6],[9.0,1.6],[6.8,3.6],[4.8,1.4],[3.4,-1.6],[0.4,-3.2],[-2.8,-3.0]]}},{"poly":{"accent":0,"color":"ffe066","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[-1.0,-9.8],[1.4,-12.8],[2.8,-9.8],[0.8,-8.4]]}},{"poly":{"accent":0,"color":"b87d00","name":"","oc":"05050d","outline":false,"ow":0.5,"pts":[[4.8,-2.6],[8.6,-3.2],[8.8,1.2],[6.8,3.2],[5.0,1.0]]}}],"name":"head","oc":"05050d","ow":0.0,"pos":[-0.5,-17.5],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"}],"name":"side","oc":"05050d","ow":0.0,"pos":[0.0,0.0],"rot":0.0,"scale":[1.0,1.0],"tint":"ffffff"}}};   // the shipped hero, or the template of the character being edited
 const HERO_DEFAULT = DEFAULT;
@@ -282,9 +576,18 @@ const ui = { link: "", view: "side", sel: null, collapsed: new Set(), grid: true
 let undoStack = [], redoStack = [], lastCoalesce = ["", 0];
 let dirty = false, cloudOk = false, db = null, auth = null, nickname = "";
 try { nickname = localStorage.getItem("ncn_puppet_nick") || ""; } catch (e) {}
+imgBind({ db: () => db, collection, doc: fsDoc, getDocs, setDoc, deleteDoc }); IMG.user = () => nickname || "Anonymous";
+IMG.onChange = () => { try { renderEdit(); rebuildPreview(); renderTree(); renderInspector(); } catch (e) { /* the page is still starting */ } };
+window.__puppet = { get doc() { return doc; }, get ui() { return ui; }, IMG, imgPicker, imgPrep, imgList, imgUrl, addImage, select, render: () => render() };   // for the checks and for debugging
 
 /* ---------- helpers on the data ---------- */
 const isPoly = n => !!n.poly;
+const isImg = n => !!(n.poly && n.poly.img);   // a picture part: a polygon of four corners (top-left, top-right, bottom-right, bottom-left) with a library picture on them
+/* the picture's corners -> an SVG matrix: the picture (w x h px) is laid on the quad by its first three corners */
+function imgMatrix(p) {
+  const w = (p.img.w || 1), h = (p.img.h || 1), a = p.pts[0], b = p.pts[1], d = p.pts[3];
+  return `matrix(${(b[0] - a[0]) / w} ${(b[1] - a[1]) / w} ${(d[0] - a[0]) / h} ${(d[1] - a[1]) / h} ${a[0]} ${a[1]})`;
+}
 /* Crossing edges: Godot cannot triangulate a polygon whose outline crosses itself, so the game silently skips it (the part vanishes).
    Returns the crossing points [[x, y], ...]; empty = fine. (Touching points, repeated points and fold-backs triangulate fine, so they are not flagged.) */
 function crossings(pts) {
@@ -304,7 +607,7 @@ function crossings(pts) {
   }
   return out;
 }
-function crossingPolys() { const r = []; Object.entries(doc.views).forEach(([v, root]) => walk(root, n => { if (isPoly(n) && crossings(n.poly.pts).length) r.push({ view: v, node: n }); })); return r; }
+function crossingPolys() { const r = []; Object.entries(doc.views).forEach(([v, root]) => walk(root, n => { if (isPoly(n) && !n.poly.img && crossings(n.poly.pts).length) r.push({ view: v, node: n }); })); return r; }
 function walk(n, fn, parent = null) { fn(n, parent); if (!isPoly(n)) n.kids.forEach(k => walk(k, fn, n)); }
 function findParent(root, target) { let found = null; walk(root, (n, p) => { if (n === target) found = p; }); return found; }
 function rigIds(view) { return new Set(Object.values(doc.rig[view] || {})); }
@@ -358,6 +661,14 @@ function buildView(parent, root, opts = {}) {
   (function rec(n, par, tint, path) {
     if (isPoly(n)) {
       const p = n.poly;
+      if (p.img) {   // a picture: the image on the four corners, and an invisible polygon over it to click on
+        const url = imgUrl(p.img.file);
+        if (url && p.pts.length === 4) { const im = el("image", { href: url, width: p.img.w || 1, height: p.img.h || 1, transform: imgMatrix(p), preserveAspectRatio: "none" }, par); if (hid(path)) im.setAttribute("visibility", "hidden"); }
+        const pe = el("polygon", { points: p.pts.map(q => q.join(",")).join(" "), fill: "transparent", stroke: url ? "none" : "#ff4fd0", "stroke-dasharray": "0.6 0.6", "stroke-width": 0.2 }, par);
+        if (hid(path)) pe.setAttribute("visibility", "hidden");
+        polys.set(p, pe); if (opts.pick) pe.dataset.pick = "1";
+        return;
+      }
       const pe = el("polygon", { points: p.pts.map(q => q.join(",")).join(" "), fill: polyColor(p, tint) }, par);
       if (hid(path)) pe.setAttribute("visibility", "hidden");
       if (p.outline && !opts.noOutlines) { pe.setAttribute("stroke", rgb2css(hex2rgb(outC(p)).map((c, i) => c * tint[i]))); pe.setAttribute("stroke-width", 2 * outW(p)); pe.setAttribute("stroke-linejoin", "round"); pe.setAttribute("paint-order", "stroke"); }
@@ -369,7 +680,7 @@ function buildView(parent, root, opts = {}) {
     const tc = hex2rgb(n.tint || "ffffff").map(x => x / 255), nt = [tint[0] * tc[0], tint[1] * tc[1], tint[2] * tc[2]];
     if (n.ow > 0 && !opts.noOutlines) {   // whole-section outline: every direct polygon grown by ow, behind all of the section's fills
       const oc = rgb2css(hex2rgb(n.oc || OUT_C).map((c, i) => c * nt[i]));
-      n.kids.forEach((k, ki) => { if (isPoly(k) && !hid(path + "/" + ki)) el("polygon", { points: k.poly.pts.map(q => q.join(",")).join(" "), fill: oc, stroke: oc, "stroke-width": 2 * n.ow, "stroke-linejoin": "round" }, g); });
+      n.kids.forEach((k, ki) => { if (isPoly(k) && !k.poly.img && !hid(path + "/" + ki)) el("polygon", { points: k.poly.pts.map(q => q.join(",")).join(" "), fill: oc, stroke: oc, "stroke-width": 2 * n.ow, "stroke-linejoin": "round" }, g); });
     }
     n.kids.forEach((k, ki) => rec(k, g, nt, path + "/" + ki));
   })(root, parent, [1, 1, 1], "r");
@@ -503,6 +814,7 @@ function renderEdit() {
   }
   // red rings where a polygon's outline crosses itself (any polygon in this view, selected or not)
   built.polys.forEach((pe, p) => {
+    if (p.img) return;
     const xs = crossings(p.pts); if (!xs.length) return;
     const mg = el("g", { transform: toWorld(world, pe), "pointer-events": "none" }, world), r = 7 / ui.zoom;
     xs.forEach(([x, y]) => { el("circle", { cx: x, cy: y, r, fill: "none", stroke: "#ff3b5c", "stroke-width": 2 / ui.zoom }, mg); el("line", { x1: x - r * 0.6, y1: y - r * 0.6, x2: x + r * 0.6, y2: y + r * 0.6, stroke: "#ff3b5c", "stroke-width": 2 / ui.zoom }, mg); el("line", { x1: x - r * 0.6, y1: y + r * 0.6, x2: x + r * 0.6, y2: y - r * 0.6, stroke: "#ff3b5c", "stroke-width": 2 / ui.zoom }, mg); });
@@ -512,6 +824,7 @@ function toWorld(world, elem) { const m = world.getCTM().inverse().multiply(elem
 function drawPolyHandles(world, pe, p, withHandles) {
   const hg = el("g", { transform: toWorld(world, pe) }, world); hg.id = "handles";
   el("polygon", { points: p.pts.map(q => q.join(",")).join(" "), fill: "none", stroke: "#35d0ff", "stroke-width": 1.5 / ui.zoom, "stroke-dasharray": `${4 / ui.zoom} ${3 / ui.zoom}`, "stroke-linejoin": "round", "pointer-events": "none" }, hg);
+  if (p.img) { p.pts.forEach(q => el("circle", { cx: q[0], cy: q[1], r: 2 / ui.zoom, fill: "#35d0ff", opacity: 0.7, "pointer-events": "none" }, hg)); return; }
   if (!withHandles) return;
   const r = 3 / ui.zoom * 1.0;
   const n = p.pts.length;
@@ -628,9 +941,11 @@ function renderTree() {
     row.appendChild(caret);
     const selected = ui.sel && ui.sel.obj === n; if (selected) row.classList.add("sel");
     if (isPoly(n)) {
-      const p = n.poly; const sw = document.createElement("span"); sw.className = "sw"; sw.style.background = polyColor(p, [1, 1, 1]); row.appendChild(sw);
-      const nm = document.createElement("span"); nm.textContent = p.name || `polygon · ${p.pts.length} pts`; row.appendChild(nm);
-      if (crossings(p.pts).length) { const w = document.createElement("span"); w.textContent = "⚠"; w.style.color = "var(--bad)"; w.title = "This polygon's edges cross each other: Godot can't draw it, so it will vanish in the game"; row.appendChild(w); }
+      const p = n.poly; const sw = document.createElement("span"); sw.className = "sw";
+      if (p.img) { const u = imgUrl(p.img.file); sw.style.background = u ? `center / contain no-repeat url(${u})` : "#444"; } else sw.style.background = polyColor(p, [1, 1, 1]);
+      row.appendChild(sw);
+      const nm = document.createElement("span"); nm.textContent = p.name || (p.img ? "picture · " + p.img.file : `polygon · ${p.pts.length} pts`); row.appendChild(nm);
+      if (!p.img && crossings(p.pts).length) { const w = document.createElement("span"); w.textContent = "⚠"; w.style.color = "var(--bad)"; w.title = "This polygon's edges cross each other: Godot can't draw it, so it will vanish in the game"; row.appendChild(w); }
       if (p.accent) { const tg = document.createElement("span"); tg.className = "tag"; tg.textContent = p.accent === 1 ? "accent" : "accent 2"; row.appendChild(tg); }
     } else {
       const rn = rigNameOf(view, n); const nm = document.createElement("span"); nm.textContent = n.name || "node"; row.appendChild(nm);
@@ -667,6 +982,7 @@ function renderInspectorBody() {
   const ins = $("inspector"); ins.innerHTML = ""; const s = ui.sel;
   if (!s) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "Pick a part in the list or click one on the canvas. Pivots (the rig:… parts) carry the animation: move a pivot and everything under it moves with it."; ins.appendChild(p); return; }
   const o = s.obj, view = ui.view;
+  if (isImg(o)) { imageInspector(ins, o); return; }
   if (isPoly(o)) {
     const p = o.poly, parent = selectedParent();
     const name = document.createElement("input"); name.type = "text"; name.value = p.name || ""; name.placeholder = "name (optional)"; name.title = "Names start with their top-level part (armL ...): it is added for you when you finish typing"; name.addEventListener("change", () => { const t = prefixOf(view, o); if (t && name.value.trim()) name.value = rebaseName(name.value, t, "polygon"); change(() => { p.name = name.value; }, "name"); }); ins.appendChild(field("Name", name));
@@ -713,7 +1029,7 @@ function renderInspectorBody() {
     if (!isRoot && !rn) ins.appendChild(motionControls(o));
     ins.appendChild(sectionOutlineControls(o));
     const b = document.createElement("div"); b.className = "btns";
-    b.append(btn("Add rectangle", () => addPoly(o, "rect")), btn("Add oval", () => addPoly(o, "oval")), btn("Add triangle", () => addPoly(o, "tri")), btn("Add hexagon", () => addPoly(o, "hex")), btn("Add pivot", () => addNode(o)));
+    b.append(btn("Add rectangle", () => addPoly(o, "rect")), btn("Add oval", () => addPoly(o, "oval")), btn("Add triangle", () => addPoly(o, "tri")), btn("Add hexagon", () => addPoly(o, "hex")), btn("Add picture…", () => pickImageFor(o)), btn("Add pivot", () => addNode(o)));
     ins.appendChild(b);
     ins.appendChild(clipboardControls(o, isRoot ? null : selectedParent()));
     ins.appendChild(transformControls(o));
@@ -794,6 +1110,55 @@ function layerControls(ins, o) {
   ins.append(d, h);
 }
 function containsRig(n) { const ids = new Set(); Object.keys(doc.rig).forEach(v => Object.values(doc.rig[v]).forEach(i => ids.add(i))); let c = false; walk(n, m => { if (!isPoly(m) && ids.has(m.id) && m !== n) c = true; }); return c; }
+/* mirroring turns a polygon's winding round (its points are listed in reverse); a picture keeps its corner order, because the picture is laid on the corners by their order (top-left first) */
+const revPts = (p, pts) => p.img ? pts : pts.reverse();
+/* Pick a picture from the library and put it into `node` as a new part, sized about 20 units tall. */
+async function pickImageFor(node) {
+  const file = await imgPicker({ pick: true, title: "Pick a picture for the part" });
+  if (file) addImage(node, file);
+}
+async function addImage(node, file) {
+  const files = await imgList(); const m = files[file] || { w: 64, h: 64 };
+  const H = 20, W = H * (m.w || 1) / (m.h || 1), hw = round2(W / 2), hh = round2(H / 2), pre = prefixOf(ui.view, node);
+  const part = { poly: { pts: [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]], color: "ffffff", outline: false, ow: 0, oc: OUT_C, accent: 0, name: (pre ? pre + " " : "") + file.replace(/\.png$/, ""), img: { file, w: m.w || 64, h: m.h || 64 } } };
+  change(() => { node.kids.push(part); }); select({ obj: part });
+}
+function imgSizeOf(p) { const a = p.pts[0], b = p.pts[1], d = p.pts[3]; return [Math.hypot(b[0] - a[0], b[1] - a[1]), Math.hypot(d[0] - a[0], d[1] - a[1])]; }
+function setImgSize(p, w, h) {   // keep the centre and the turn; change the length of the two sides
+  const a = p.pts[0], b = p.pts[1], c = p.pts[2], d = p.pts[3], [cw, ch] = imgSizeOf(p); if (cw < 1e-6 || ch < 1e-6) return;
+  const cx = (a[0] + c[0]) / 2, cy = (a[1] + c[1]) / 2, ux = (b[0] - a[0]) / cw, uy = (b[1] - a[1]) / cw, vx = (d[0] - a[0]) / ch, vy = (d[1] - a[1]) / ch;
+  const k = (sx, sy) => [round2(cx + ux * w * sx + vx * h * sy), round2(cy + uy * w * sx + vy * h * sy)];
+  p.pts = [k(-0.5, -0.5), k(0.5, -0.5), k(0.5, 0.5), k(-0.5, 0.5)];
+}
+function imageInspector(ins, o) {
+  const p = o.poly, parent = selectedParent(), view = ui.view;
+  const name = document.createElement("input"); name.type = "text"; name.value = p.name || ""; name.placeholder = "name (optional)";
+  name.addEventListener("change", () => { const t = prefixOf(view, o); if (t && name.value.trim()) name.value = rebaseName(name.value, t, "polygon"); change(() => { p.name = name.value; }, "name"); }); ins.appendChild(field("Name", name));
+  const url = imgUrl(p.img.file), th = document.createElement("div"); th.style.cssText = "height:90px;border:1px solid var(--line,#333);border-radius:6px;display:grid;place-items:center;background:#12142a;margin:4px 0";
+  if (url) { const im = document.createElement("img"); im.src = url; im.style.cssText = "max-width:100%;max-height:100%"; th.appendChild(im); } else th.textContent = IMG.files && !IMG.files[p.img.file] ? "⚠ not in the library" : "loading…";
+  ins.appendChild(th);
+  const f1 = document.createElement("p"); f1.className = "hint"; f1.textContent = `${p.img.file}  ·  ${p.img.w}×${p.img.h} px`; ins.appendChild(f1);
+  const b1 = document.createElement("div"); b1.className = "btns";
+  b1.append(btn("Replace picture…", async () => { const f = await imgPicker({ pick: true, title: "Pick another picture" }); if (!f) return; const files = await imgList(), m = files[f] || { w: p.img.w, h: p.img.h }; change(() => { p.img = { file: f, w: m.w, h: m.h }; setImgSize(p, imgSizeOf(p)[0], imgSizeOf(p)[0] * m.h / m.w); }); }),
+    btn("Cut / edit the picture…", async () => { const r = await imgPrep({ name: p.img.file }); if (r) { IMG.onChange(); } }));
+  ins.appendChild(b1);
+  const [w, h] = imgSizeOf(p);
+  ins.appendChild(field("Size (units)", xy(numInput(w, v => change(() => setImgSize(p, Math.max(0.1, v), imgSizeOf(p)[1])), 0.5), numInput(h, v => change(() => setImgSize(p, imgSizeOf(p)[0], Math.max(0.1, v))), 0.5))));
+  const b0 = document.createElement("div"); b0.className = "btns";
+  b0.append(btn("Match the picture's shape", () => change(() => { const [cw] = imgSizeOf(p); setImgSize(p, cw, cw * p.img.h / p.img.w); })), btn("Flip ↔", () => flip(true)), btn("Flip ↕", () => flip(false)), btn("Grow 10%", () => grow(1.1)), btn("Shrink 10%", () => grow(1 / 1.1)));
+  ins.appendChild(b0);
+  const rb = document.createElement("div"); rb.className = "btns";
+  rb.append(btn("↺ 90°", () => rotatePoly(-90)), btn("↺ 15°", () => rotatePoly(-15)), btn("↻ 15°", () => rotatePoly(15)), btn("↻ 90°", () => rotatePoly(90)));
+  ins.appendChild(field("Rotate", rb));
+  const ang = document.createElement("input"); ang.type = "number"; ang.value = 45; ang.step = 5; ang.style.width = "64px";
+  const goRot = document.createElement("div"); goRot.className = "btns"; goRot.append(ang, btn("Rotate", () => rotatePoly(+ang.value || 0)));
+  ins.appendChild(field("Rotate by °", goRot));
+  layerControls(ins, o);
+  ins.appendChild(clipboardControls(o, parent));
+  const b3 = document.createElement("div"); b3.className = "btns"; b3.append(btn("Delete picture", deleteSelected, "danger")); ins.appendChild(b3);
+  const h2 = document.createElement("p"); h2.className = "hint"; h2.textContent = "A picture moves, turns and mirrors with its part like any shape (drag it on the canvas, arrows nudge it). Its transparency is kept. Editing the picture changes it everywhere it is used.";
+  ins.appendChild(h2);
+}
 function addPoly(node, kind) {
   /* an oval is taller than wide (a head / face); an even number of points at half-steps, so every point has a left-right mirror twin and the shape is exactly symmetrical */
   const oval = Array.from({ length: 16 }, (_, i) => { const a = (i + 0.5) / 16 * Math.PI * 2; return [round3(2.6 * Math.sin(a)), round3(-3.6 * Math.cos(a))]; });
@@ -806,7 +1171,7 @@ function addPoly(node, kind) {
 function copyPivot(node, mirror) {
   let id = nextId(); const c = clone(node);
   (function ren(x) {
-    if (isPoly(x)) { delete x.poly.outline_was; if (mirror) x.poly.pts = x.poly.pts.map(q => [-q[0], q[1]]).reverse(); return; }
+    if (isPoly(x)) { delete x.poly.outline_was; if (mirror) x.poly.pts = revPts(x.poly, x.poly.pts.map(q => [-q[0], q[1]])); return; }
     x.id = id++;
     if (mirror) { x.pos = [-x.pos[0], x.pos[1]]; x.rot = -x.rot; if (x.mv) ["swing", "lean", "sway", "aim"].forEach(k => { if (x.mv[k]) x.mv[k] = -x.mv[k]; }); }
     x.kids.forEach(ren);
@@ -822,7 +1187,7 @@ function guessMirror(a, b) { return !!(a && b && a.length > 1 && a.slice(0, -1) 
 function freshKids(kids, mirror) {
   let id = nextId(); const out = clone(kids);
   (function ren(list) { list.forEach(x => {
-    if (isPoly(x)) { delete x.poly.outline_was; if (mirror) x.poly.pts = x.poly.pts.map(q => [-q[0], q[1]]).reverse(); return; }
+    if (isPoly(x)) { delete x.poly.outline_was; if (mirror) x.poly.pts = revPts(x.poly, x.poly.pts.map(q => [-q[0], q[1]])); return; }
     x.id = id++; if (mirror) { x.pos = [-x.pos[0], x.pos[1]]; x.rot = -x.rot; if (x.mv) ["swing", "lean", "sway", "aim"].forEach(k => { if (x.mv[k]) x.mv[k] = -x.mv[k]; }); }
     ren(x.kids);
   }); })(out);
@@ -846,7 +1211,7 @@ function xformKids(kids, kind, v, c) {
   } else if (kind === "flip") {   // v = "x" (left-right) or "y" (top-bottom)
     const F = p => v === "x" ? [2 * c[0] - p[0], p[1]] : [p[0], 2 * c[1] - p[1]];
     kids.forEach(k => {
-      if (isPoly(k)) { k.poly.pts = k.poly.pts.map(q => F(q).map(round3)).reverse(); return; }
+      if (isPoly(k)) { k.poly.pts = revPts(k.poly, k.poly.pts.map(q => F(q).map(round3))); return; }
       k.pos = F(k.pos).map(round3); k.rot = round3(-k.rot); if (k.mv) MV_ROT.forEach(m => { if (k.mv[m]) k.mv[m] = -k.mv[m]; });
       xformKids(k.kids, "flip", v, [0, 0]);   // its contents flip about its own origin
     });
@@ -992,11 +1357,11 @@ window.addEventListener("keydown", e => {
 });
 function addNode(parent) { const pre = prefixOf(ui.view, parent) || (parent === doc.views[ui.view] ? "" : parent.name); const n = { id: nextId(), name: (pre ? pre + " " : "") + "pivot", pos: [0, 0], rot: 0, scale: [1, 1], tint: "ffffff", kids: [] }; change(() => { parent.kids.push(n); }); select({ obj: n }); }
 function dup(mirror) {
-  const o = ui.sel.obj, parent = selectedParent(), c = clone(o); if (mirror) { c.poly.pts = c.poly.pts.map(q => [-q[0], q[1]]).reverse(); }
+  const o = ui.sel.obj, parent = selectedParent(), c = clone(o); if (mirror) { c.poly.pts = revPts(c.poly, c.poly.pts.map(q => [-q[0], q[1]])); }
   else c.poly.pts = c.poly.pts.map(q => [round2(q[0] + 1.5), round2(q[1] + 1.5)]);
   change(() => { parent.kids.splice(parent.kids.indexOf(o) + 1, 0, c); }); select({ obj: c });
 }
-function flip(horizontal) { const p = ui.sel.obj.poly; const c = centroid(p.pts); change(() => { p.pts = p.pts.map(q => horizontal ? [round2(2 * c[0] - q[0]), q[1]] : [q[0], round2(2 * c[1] - q[1])]).reverse(); }); }
+function flip(horizontal) { const p = ui.sel.obj.poly; const c = centroid(p.pts); change(() => { p.pts = revPts(p, p.pts.map(q => horizontal ? [round2(2 * c[0] - q[0]), q[1]] : [q[0], round2(2 * c[1] - q[1])])); }); }
 /* Turn the selected polygon about its own centre (its points are rewritten; the part and its position are untouched). Positive = clockwise on screen. */
 function rotatePoly(deg) {
   const p = ui.sel.obj.poly, c = centroid(p.pts), a = deg * Math.PI / 180, cs = Math.cos(a), sn = Math.sin(a);
@@ -1014,7 +1379,7 @@ function deleteSelected() {
 function mirroredCopy(src, dst) {
   const map = {}; let nid = nextId();
   const rec = d => {
-    if (isPoly(d)) return { poly: Object.assign({}, d.poly, { pts: d.poly.pts.slice().reverse().map(q => [round2(-q[0]), q[1]]) }) };
+    if (isPoly(d)) return { poly: Object.assign({}, d.poly, { pts: (d.poly.img ? d.poly.pts.slice() : d.poly.pts.slice().reverse()).map(q => [round2(-q[0]), q[1]]) }) };
     const m = Object.assign({}, d, { id: nid++, pos: [round2(-d.pos[0]), d.pos[1]], rot: -d.rot, scale: d.scale.slice(), kids: [] });
     map[d.id] = m.id; m.kids = d.kids.map(rec); return m;
   };
@@ -1248,6 +1613,7 @@ $("viewSeg").addEventListener("click", e => { const b = e.target.closest("button
 $("expandAll").addEventListener("click", () => setAllCollapsed(false)); $("collapseAll").addEventListener("click", () => setAllCollapsed(true));
 $("mirrorToRightBtn").addEventListener("click", () => askMirror("side", "right")); $("mirrorToLeftBtn").addEventListener("click", () => askMirror("right", "side")); $("linkSel").addEventListener("change", e => setLink(e.target.value));
 $("charSel").addEventListener("change", e => switchCharacter(e.target.value));
+$("picsBtn").addEventListener("click", () => { if (!cloudOk) { setStatus("the picture library needs the cloud", "warn"); return; } imgPicker({ title: "Pictures" }); });
 $("undo").addEventListener("click", undo); $("redo").addEventListener("click", redo);
 $("saveBtn").addEventListener("click", () => saveCloud(false));
 $("reloadBtn").addEventListener("click", async () => {
