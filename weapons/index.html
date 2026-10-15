@@ -693,6 +693,108 @@ async function imgPrep(opts) {
     layout(); setTool("bg");
   });
 }
+/* Sheets of frames for the picture library (appended to image_lib.js by the studios' build scripts). A picture part's `img` may describe a SHEET:
+   {file, w, h (ONE frame in px), cols, rows, count, fps, mode, param}. mode: loop (time x fps) | once (plays through, stays on the last frame) | life (spread over an effect's life)
+   | bind (follows the game number `param`, 0..1). The same rules as ImageLib.frame_at in the game (scripts/image_lib.gd). */
+
+function imgFrameCount(img) { const cols = Math.max(img.cols || 1, 1), rows = Math.max(img.rows || 1, 1); return Math.min(Math.max(img.count || cols * rows, 1), cols * rows); }
+function imgIsSheet(img) { return imgFrameCount(img) > 1; }
+function imgFrameAt(img, t, life, bound) {
+  const n = imgFrameCount(img); if (n <= 1) return 0;
+  const fps = img.fps === undefined ? 12 : img.fps;
+  switch (img.mode || "loop") {
+    case "once": return Math.min(Math.floor(Math.max(t, 0) * fps), n - 1);
+    case "life": return Math.min(Math.floor(Math.min(Math.max(life || 0, 0), 1) * n), n - 1);
+    case "bind": return Math.min(Math.floor(Math.min(Math.max(bound || 0, 0), 1) * n), n - 1);
+  }
+  return Math.floor(Math.max(t, 0) * fps) % n;
+}
+/* an SVG <g> that shows ONE frame of a sheet on a quad: `matrix` maps the frame (img.w x img.h px) onto the part's four corners; the sheet is drawn shifted inside it and clipped to the frame. `defs` takes the clip path. */
+function imgSheetSvg(defs, url, img, matrix, frame, attrs) {
+  const NSURI = "http://www.w3.org/2000/svg";
+  const cols = Math.max(img.cols || 1, 1), rows = Math.max(img.rows || 1, 1), fw = img.w || 1, fh = img.h || 1, col = frame % cols, row = Math.floor(frame / cols);
+  const id = "clipf" + Math.round(fw * 100) + "x" + Math.round(fh * 100);
+  const mk = (tag, a) => { const e = document.createElementNS(NSURI, tag); for (const k in a) e.setAttribute(k, a[k]); return e; };
+  if (defs && !defs.querySelector("#" + id)) { const cp = mk("clipPath", { id }); cp.appendChild(mk("rect", { x: 0, y: 0, width: fw, height: fh })); defs.appendChild(cp); }
+  const g = mk("g", Object.assign({ transform: matrix, "clip-path": "url(#" + id + ")" }, attrs || {}));
+  g.appendChild(mk("image", { href: url, x: -col * fw, y: -row * fh, width: fw * cols, height: fh * rows, preserveAspectRatio: "none" }));
+  return g;
+}
+
+/* The frames dialog: lay a grid on the sheet (columns, rows, how many cells are used), pick how it plays, and watch it.
+   Resolves {cols, rows, count?, fps, mode, param?, w, h} (w, h = one frame in px) or null. opts.life: the host can spread frames over an effect's life; opts.bind: it can bind a game number (opts.params = known names). */
+async function imgFramesDialog(img, opts = {}) {
+  return imgModal(async (box, close) => {
+    box.__locked = true;
+    const url = imgUrl(img.file);
+    let im = null;
+    try { im = url ? await imgLoad(url) : null; } catch (e) { /* shown below */ }
+    if (!im) { box.append(ih("p", {}, "Cannot read that picture."), ih("button", { onclick: () => close(null) }, "Close")); return; }
+    const SW = im.naturalWidth, SH = im.naturalHeight;
+    const st = { cols: img.cols || 1, rows: img.rows || 1, count: img.count || 0, fps: img.fps === undefined ? 12 : img.fps, mode: img.mode || "loop", param: img.param || "" };
+    const sheetC = ih("canvas"), prevC = ih("canvas", { style: "background:#1a1d33;border:1px solid #333a63;border-radius:6px" });
+    const info = ih("span", { class: "imglib-dim" }, "");
+    const cur = () => Object.assign({}, st, { count: st.count || st.cols * st.rows });
+    const drawSheet = () => {
+      const k = Math.min(1, 640 / SW, 300 / SH); sheetC.width = Math.round(SW * k); sheetC.height = Math.round(SH * k);
+      const c = sheetC.getContext("2d"); c.fillStyle = "#1a1d33"; c.fillRect(0, 0, sheetC.width, sheetC.height); c.drawImage(im, 0, 0, sheetC.width, sheetC.height);
+      const fw = sheetC.width / st.cols, fh = sheetC.height / st.rows, n = imgFrameCount(cur());
+      c.strokeStyle = "#35d0ff"; c.font = "11px sans-serif"; c.lineWidth = 1;
+      for (let i = 0; i < st.cols * st.rows; i++) {
+        const x = (i % st.cols) * fw, y = Math.floor(i / st.cols) * fh;
+        if (i >= n) { c.fillStyle = "#000a"; c.fillRect(x, y, fw, fh); }
+        c.strokeRect(x + 0.5, y + 0.5, fw - 1, fh - 1);
+        if (i < n) { c.fillStyle = "#35d0ff"; c.fillText(String(i), x + 3, y + 12); }
+      }
+      info.textContent = `${SW}×${SH} px sheet · ${n} frame${n === 1 ? "" : "s"} of ${Math.round(SW / st.cols)}×${Math.round(SH / st.rows)} px`;
+    };
+    let t0 = performance.now(), raf = 0;
+    const tick = () => {
+      if (!box.isConnected) return;
+      const t = (performance.now() - t0) / 1000, o = cur(), n = imgFrameCount(o), fw = SW / st.cols, fh = SH / st.rows;
+      const f = imgFrameAt(o, t, (t % 1.5) / 1.5, (t % 1.5) / 1.5), sc = Math.min(160 / fw, 160 / fh, 3);
+      prevC.width = Math.max(1, Math.round(fw * sc)); prevC.height = Math.max(1, Math.round(fh * sc));
+      const c = prevC.getContext("2d"); c.clearRect(0, 0, prevC.width, prevC.height);
+      c.drawImage(im, (f % st.cols) * fw, Math.floor(f / st.cols) * fh, fw, fh, 0, 0, prevC.width, prevC.height);
+      if (st.mode === "once" && t > n / Math.max(st.fps, 0.1) + 0.6) t0 = performance.now();
+      raf = requestAnimationFrame(tick);
+    };
+    const gridNum = (key, min, max) => {
+      const i = ih("input", { type: "number", min, max, step: 1, value: st[key], style: "width:64px" });
+      i.addEventListener("input", () => { const v = Math.round(Number(i.value)); if (v >= min) { st[key] = Math.min(v, max); st.count = Math.min(st.count || 0, st.cols * st.rows); drawSheet(); } });
+      return i;
+    };
+    const fpsIn = ih("input", { type: "number", min: 0.1, max: 120, step: 0.5, value: st.fps, style: "width:64px" });
+    fpsIn.addEventListener("input", () => { const v = Number(fpsIn.value); if (v > 0) st.fps = v; });
+    const countIn = ih("input", { type: "number", min: 1, max: 1024, step: 1, value: st.count || "", placeholder: "all", style: "width:64px" });
+    countIn.addEventListener("input", () => { const v = Math.round(Number(countIn.value)); st.count = v > 0 ? Math.min(v, st.cols * st.rows) : 0; drawSheet(); });
+    const modes = [["loop", "loop (at the speed below)"], ["once", "once (stays on the last frame)"]];
+    if (opts.life) modes.push(["life", "over the effect's life (an explosion, an impact)"]);
+    if (opts.bind) modes.push(["bind", "follows a game number (0 to 1)"]);
+    if (opts.run) modes.push(["run", "follows the run (one pass of the frames per stride)"]);
+    const modeSel = ih("select", {}, modes.map(([v, l]) => ih("option", { value: v }, l)));
+    modeSel.value = modes.some(m => m[0] === st.mode) ? st.mode : "loop"; st.mode = modeSel.value;
+    const paramIn = ih("input", { type: "text", value: st.param, placeholder: "charge", list: "imgFrameParams", style: "width:120px" });
+    const paramRow = ih("span", {}, "number ", paramIn, ih("datalist", { id: "imgFrameParams" }, (opts.params || []).map(p => ih("option", { value: p }))));
+    const syncMode = () => { st.mode = modeSel.value; paramRow.style.display = st.mode === "bind" ? "" : "none"; t0 = performance.now(); };
+    modeSel.addEventListener("change", syncMode); paramIn.addEventListener("input", () => { st.param = paramIn.value.trim(); });
+    syncMode();
+    const done = () => {
+      cancelAnimationFrame(raf);
+      const o = cur(), out = { cols: st.cols, rows: st.rows, fps: st.fps, mode: st.mode, w: Math.round(SW / st.cols * 100) / 100, h: Math.round(SH / st.rows * 100) / 100 };
+      if (o.count < st.cols * st.rows) out.count = o.count;
+      if (st.mode === "bind" && st.param) out.param = st.param;
+      close(out);
+    };
+    box.append(ih("h3", {}, "Frames of " + img.file),
+      ih("p", { class: "imglib-dim" }, "A sheet is one picture with the frames in a grid, read left to right, top to bottom. Say how many columns and rows it has; “frames used” is for a last row that is not full."),
+      ih("div", { class: "imglib-row" }, "columns", gridNum("cols", 1, 32), "rows", gridNum("rows", 1, 32), "frames used", countIn, "speed", fpsIn, "per second"),
+      ih("div", { class: "imglib-row" }, "plays", modeSel, paramRow), info,
+      ih("div", { class: "imglib-row", style: "align-items:flex-start" }, ih("div", { class: "imglib-stage" }, sheetC), ih("div", {}, ih("div", { class: "imglib-dim" }, "preview"), prevC)),
+      ih("div", { class: "imglib-row" }, ih("button", { class: "pri", onclick: done }, "Use these frames"), ih("button", { onclick: () => { cancelAnimationFrame(raf); close(null); } }, "Cancel")));
+    drawSheet(); raf = requestAnimationFrame(tick);
+  });
+}
 
 
 const firebaseConfig = {
@@ -743,8 +845,22 @@ function tintFilter(hex6){
   }
   return 'url(#' + id + ')';
 }
+/* the frame of a sheet picture to show: while editing, the one picked with the part's frame slider; while previewing, the one the game would show (time, the effect's life, or the bound number) */
+function pvFrame(part){
+  const img = part.img; if(!imgIsSheet(img)) return 0;
+  const n = imgFrameCount(img);
+  if(!previewOn) return Math.min(Math.max(part._frame || 0, 0), n - 1);
+  const isFx = current && current.ns === 'effects', dur = isFx ? effectDuration() : 0;
+  const tt = isFx ? (previewLoopsEvery > 0 ? previewT % previewLoopsEvery : previewT) : previewT;
+  const span = (part.fx && part.fx.dur) ? +part.fx.dur : (dur || 1), life = Math.min(Math.max((tt - ((part.fx && part.fx.delay) || 0)) / span, 0), 1);
+  return imgFrameAt(img, previewT, life, +(pvParams[img.param] || 0));
+}
 function pictureEl(part, abs, opacity, colorHex8, blend){   // the picture on the part's four corners (abs), tinted by the colour
   const url = imgUrl(part.img.file); if(!url || abs.length !== 4) return null;
+  if(imgIsSheet(part.img)){   // a sheet of frames: one frame, clipped
+    const sa = {opacity: opacity * parseHex8(colorHex8).a, style:'pointer-events:none;' + (blend || '')}, sf = tintFilter(colorHex8); if(sf) sa.filter = sf;
+    return imgSheetSvg(tintDefs, url, part.img, imgMatrixAbs(abs, part.img), pvFrame(part), sa);
+  }
   const attrs = {href:url, width:part.img.w || 1, height:part.img.h || 1, transform:imgMatrixAbs(abs, part.img), preserveAspectRatio:'none', opacity:opacity * parseHex8(colorHex8).a, style:'pointer-events:none;' + (blend || '')};
   const f = tintFilter(colorHex8); if(f) attrs.filter = f;
   return el('image', attrs);
@@ -1880,7 +1996,7 @@ function seedDoc(ns, kind){
 // Firestore, or written to an exported file. Left alone for in-app copy/
 // paste/duplicate, where carrying the display preference along is harmless.
 function cleanParts(arr){
-  return JSON.parse(JSON.stringify(arr, (k, v) => (k === '_hideVerts' || k === '_hidden') ? undefined : v));
+  return JSON.parse(JSON.stringify(arr, (k, v) => (k === '_hideVerts' || k === '_hidden' || k === '_frame') ? undefined : v));
 }
 function timeAgo(iso){
   if(!iso) return '';
@@ -2135,7 +2251,7 @@ let pvFlags = {}, pvParams = {};
 function whenList(part){ return part.when ? (Array.isArray(part.when) ? part.when : [part.when]) : []; }
 function stateNames(){
   const flags = new Set(), params = new Set();
-  parts.forEach(pt => { whenList(pt).forEach(w => flags.add(String(w).replace(/^!/, ''))); if(pt.bind && pt.bind.param) params.add(pt.bind.param); if(pt.bind2 && pt.bind2.param) params.add(pt.bind2.param); });
+  parts.forEach(pt => { whenList(pt).forEach(w => flags.add(String(w).replace(/^!/, ''))); if(pt.bind && pt.bind.param) params.add(pt.bind.param); if(pt.bind2 && pt.bind2.param) params.add(pt.bind2.param); if(pt.img && pt.img.mode === 'bind' && pt.img.param) params.add(pt.img.param); });
   return {flags:[...flags], params:[...params]};
 }
 function partShown(part){
@@ -2669,7 +2785,7 @@ function renderParts(){
       <div class="part-row-top">
         <span class="part-drag-handle" data-role="drag" title="Drag to reorder (front/back)">&#8942;&#8942;</span>
         <div class="swatch"><input type="color" value="${hex}" data-role="hex"></div>
-        <div class="part-type">${part.img ? '\u{1F5BC} ' + part.img.file : part.type + ' · ' + part.points.length + 'pt'}${part.type==='polygon' && !part.img && crossingsOf(part.points).length ? ' <span style="color:#ff3b5c" title="This polygon crosses itself: the game cannot draw it (the part vanishes)">\u26a0 crosses</span>' : ''}</div>
+        <div class="part-type">${part.img ? '\u{1F5BC} ' + part.img.file + (imgIsSheet(part.img) ? ' \u00b7 ' + imgFrameCount(part.img) + ' frames' : '') : part.type + ' · ' + part.points.length + 'pt'}${part.type==='polygon' && !part.img && crossingsOf(part.points).length ? ' <span style="color:#ff3b5c" title="This polygon crosses itself: the game cannot draw it (the part vanishes)">\u26a0 crosses</span>' : ''}</div>
         <button class="part-eye${part._hidden ? ' off' : ''}" data-role="eye" title="${part._hidden ? 'Hidden while editing (this view only, nothing is saved). Click to show.' : 'Hide this part while editing (this view only, nothing is saved)'}">${part._hidden ? '\u25cc' : '\u25c9'}</button>
         <button class="part-dup" title="Duplicate part" data-role="dup">Dup</button>
         <button class="part-del" title="Delete part" data-role="del">&times;</button>
@@ -2677,7 +2793,11 @@ function renderParts(){
       ${part.img ? `<div class="part-tools"><span class="lbl">picture</span>
         <button class="btn" data-role="imgrep" title="Use another picture from the library">Replace…</button>
         <button class="btn" data-role="imgedit" title="Cut / edit the picture itself (it changes everywhere it is used)">Cut…</button>
-        <button class="btn" data-role="imgfit" title="Give the part the picture's own shape (keeps its width)">Match shape</button></div>` : ''}
+        <button class="btn" data-role="imgfit" title="Give the part the picture's own shape (keeps its width)">Match shape</button>
+        <button class="btn" data-role="imgframes" title="This picture is a sheet of frames (a grid): say how many, and how they play">Frames…</button></div>
+      ${part.img && imgIsSheet(part.img) ? `<div class="part-row-controls"><label>frame</label>
+        <input type="range" min="0" max="${imgFrameCount(part.img) - 1}" step="1" value="${Math.min(part._frame || 0, imgFrameCount(part.img) - 1)}" data-role="imgframe" title="Which frame to show while editing (the preview plays them: ${part.img.mode || 'loop'} at ${part.img.fps === undefined ? 12 : part.img.fps}/s)">
+        <span class="val">${(part._frame || 0) + 1}/${imgFrameCount(part.img)}</span></div>` : ''}` : ''}
       <div class="part-row-controls"${part.img ? ' hidden' : ''}>
         <button class="verts-toggle-btn" data-role="toggleverts" title="Vertex handles only ever show on the active part anyway — this just also hides them WHEN it's active, so a dense point ring (a Circle preset, say) doesn't blanket the shape and leave nothing else to grab for dragging">
           ${part._hideVerts ? '○ Points hidden — tap to show' : '● Points shown — tap to hide'}
@@ -2788,6 +2908,15 @@ function renderParts(){
       const itool = (role, fn) => { const b = row.querySelector('[data-role='+role+']'); if(b) b.addEventListener('click', e => { e.stopPropagation(); activePart = pi; fn(); }); };
       itool('imgrep', async () => { const f2 = await imgPicker({pick: true, title: 'Pick another picture'}); if(!f2) return; const files = await imgList(), m = files[f2] || {w: part.img.w, h: part.img.h}; part.img = {file:f2, w:m.w, h:m.h}; const w0 = imgSizeOfPart(part)[0]; setPartImgSize(part, w0, w0 * m.h / m.w); afterTransform(); });
       itool('imgedit', async () => { const r = await imgPrep({name: part.img.file}); if(r){ renderStage(); renderParts(); } });
+      itool('imgframes', async () => {
+        const isFx = current && current.ns === 'effects';
+        const r = await imgFramesDialog(part.img, {life: isFx, bind: isFx, params: stateNames().params}); if(!r) return;
+        const file = part.img.file, w0 = imgSizeOfPart(part)[0];
+        if(r.cols === 1 && r.rows === 1) part.img = {file, w: r.w, h: r.h}; else part.img = Object.assign({file}, r);
+        delete part._frame; setPartImgSize(part, w0, w0 * part.img.h / part.img.w); afterTransform();
+      });
+      const fr = row.querySelector('[data-role=imgframe]');
+      if(fr) fr.addEventListener('input', e => { part._frame = +e.target.value; e.target.nextElementSibling.textContent = (part._frame + 1) + '/' + imgFrameCount(part.img); renderStage(); });
       itool('imgfit', () => { const w0 = imgSizeOfPart(part)[0]; setPartImgSize(part, w0, w0 * part.img.h / part.img.w); afterTransform(); });
     }
     const tool = (role, fn) => { const b = row.querySelector('[data-role='+role+']'); if(b) b.addEventListener('click', e=>{ e.stopPropagation(); activePart = pi; fn(); }); };

@@ -249,6 +249,9 @@ function validateUi(ui, where, colors, modules) {
         if ("fit" in el && !UI_FITS.includes(el.fit)) err(`${wel}: fit must be one of ${UI_FITS.join(", ")}`);
         if ("slice" in el && !(Array.isArray(el.slice) && el.slice.length === 4 && el.slice.every(x => isNum(x) && x >= 0))) err(`${wel}: slice must be four margins [left, top, right, bottom] (0 or more)`);
         if ("tint" in el && typeof el.tint !== "string") err(`${wel}: tint must be a colour name or #hex`);
+        for (const [sk, hi] of [["cols", 64], ["rows", 64], ["count", 4096]]) if (sk in el && !(Number.isInteger(el[sk]) && el[sk] >= 1 && el[sk] <= hi)) err(`${wel}: ${sk} must be a whole number from 1 to ${hi}`);
+        if ("fps" in el && !(isNum(el.fps) && el.fps > 0 && el.fps <= 120)) err(`${wel}: fps must be a number above 0 up to 120`);
+        if ("mode" in el && !["loop", "once"].includes(el.mode)) err(`${wel}: mode must be loop or once`);
       } else if (ty === "richtext") {
         if (typeof el.text !== "string") err(`${wel}: a richtext needs text`);
       } else if (ty === "label") {
@@ -952,6 +955,108 @@ async function imgPrep(opts) {
       controls, hint, stage,
       ih("div", { class: "imglib-row", style: "margin-top:10px" }, ih("span", {}, "name"), nameIn, ih("span", { class: "imglib-dim" }, ".png"), ih("span", {}, "size"), sizeSel, ih("button", { class: "pri", onclick: save }, "Save to the library"), ih("button", { onclick: () => close(null) }, "Cancel"), status));
     layout(); setTool("bg");
+  });
+}
+/* Sheets of frames for the picture library (appended to image_lib.js by the studios' build scripts). A picture part's `img` may describe a SHEET:
+   {file, w, h (ONE frame in px), cols, rows, count, fps, mode, param}. mode: loop (time x fps) | once (plays through, stays on the last frame) | life (spread over an effect's life)
+   | bind (follows the game number `param`, 0..1). The same rules as ImageLib.frame_at in the game (scripts/image_lib.gd). */
+
+function imgFrameCount(img) { const cols = Math.max(img.cols || 1, 1), rows = Math.max(img.rows || 1, 1); return Math.min(Math.max(img.count || cols * rows, 1), cols * rows); }
+function imgIsSheet(img) { return imgFrameCount(img) > 1; }
+function imgFrameAt(img, t, life, bound) {
+  const n = imgFrameCount(img); if (n <= 1) return 0;
+  const fps = img.fps === undefined ? 12 : img.fps;
+  switch (img.mode || "loop") {
+    case "once": return Math.min(Math.floor(Math.max(t, 0) * fps), n - 1);
+    case "life": return Math.min(Math.floor(Math.min(Math.max(life || 0, 0), 1) * n), n - 1);
+    case "bind": return Math.min(Math.floor(Math.min(Math.max(bound || 0, 0), 1) * n), n - 1);
+  }
+  return Math.floor(Math.max(t, 0) * fps) % n;
+}
+/* an SVG <g> that shows ONE frame of a sheet on a quad: `matrix` maps the frame (img.w x img.h px) onto the part's four corners; the sheet is drawn shifted inside it and clipped to the frame. `defs` takes the clip path. */
+function imgSheetSvg(defs, url, img, matrix, frame, attrs) {
+  const NSURI = "http://www.w3.org/2000/svg";
+  const cols = Math.max(img.cols || 1, 1), rows = Math.max(img.rows || 1, 1), fw = img.w || 1, fh = img.h || 1, col = frame % cols, row = Math.floor(frame / cols);
+  const id = "clipf" + Math.round(fw * 100) + "x" + Math.round(fh * 100);
+  const mk = (tag, a) => { const e = document.createElementNS(NSURI, tag); for (const k in a) e.setAttribute(k, a[k]); return e; };
+  if (defs && !defs.querySelector("#" + id)) { const cp = mk("clipPath", { id }); cp.appendChild(mk("rect", { x: 0, y: 0, width: fw, height: fh })); defs.appendChild(cp); }
+  const g = mk("g", Object.assign({ transform: matrix, "clip-path": "url(#" + id + ")" }, attrs || {}));
+  g.appendChild(mk("image", { href: url, x: -col * fw, y: -row * fh, width: fw * cols, height: fh * rows, preserveAspectRatio: "none" }));
+  return g;
+}
+
+/* The frames dialog: lay a grid on the sheet (columns, rows, how many cells are used), pick how it plays, and watch it.
+   Resolves {cols, rows, count?, fps, mode, param?, w, h} (w, h = one frame in px) or null. opts.life: the host can spread frames over an effect's life; opts.bind: it can bind a game number (opts.params = known names). */
+async function imgFramesDialog(img, opts = {}) {
+  return imgModal(async (box, close) => {
+    box.__locked = true;
+    const url = imgUrl(img.file);
+    let im = null;
+    try { im = url ? await imgLoad(url) : null; } catch (e) { /* shown below */ }
+    if (!im) { box.append(ih("p", {}, "Cannot read that picture."), ih("button", { onclick: () => close(null) }, "Close")); return; }
+    const SW = im.naturalWidth, SH = im.naturalHeight;
+    const st = { cols: img.cols || 1, rows: img.rows || 1, count: img.count || 0, fps: img.fps === undefined ? 12 : img.fps, mode: img.mode || "loop", param: img.param || "" };
+    const sheetC = ih("canvas"), prevC = ih("canvas", { style: "background:#1a1d33;border:1px solid #333a63;border-radius:6px" });
+    const info = ih("span", { class: "imglib-dim" }, "");
+    const cur = () => Object.assign({}, st, { count: st.count || st.cols * st.rows });
+    const drawSheet = () => {
+      const k = Math.min(1, 640 / SW, 300 / SH); sheetC.width = Math.round(SW * k); sheetC.height = Math.round(SH * k);
+      const c = sheetC.getContext("2d"); c.fillStyle = "#1a1d33"; c.fillRect(0, 0, sheetC.width, sheetC.height); c.drawImage(im, 0, 0, sheetC.width, sheetC.height);
+      const fw = sheetC.width / st.cols, fh = sheetC.height / st.rows, n = imgFrameCount(cur());
+      c.strokeStyle = "#35d0ff"; c.font = "11px sans-serif"; c.lineWidth = 1;
+      for (let i = 0; i < st.cols * st.rows; i++) {
+        const x = (i % st.cols) * fw, y = Math.floor(i / st.cols) * fh;
+        if (i >= n) { c.fillStyle = "#000a"; c.fillRect(x, y, fw, fh); }
+        c.strokeRect(x + 0.5, y + 0.5, fw - 1, fh - 1);
+        if (i < n) { c.fillStyle = "#35d0ff"; c.fillText(String(i), x + 3, y + 12); }
+      }
+      info.textContent = `${SW}×${SH} px sheet · ${n} frame${n === 1 ? "" : "s"} of ${Math.round(SW / st.cols)}×${Math.round(SH / st.rows)} px`;
+    };
+    let t0 = performance.now(), raf = 0;
+    const tick = () => {
+      if (!box.isConnected) return;
+      const t = (performance.now() - t0) / 1000, o = cur(), n = imgFrameCount(o), fw = SW / st.cols, fh = SH / st.rows;
+      const f = imgFrameAt(o, t, (t % 1.5) / 1.5, (t % 1.5) / 1.5), sc = Math.min(160 / fw, 160 / fh, 3);
+      prevC.width = Math.max(1, Math.round(fw * sc)); prevC.height = Math.max(1, Math.round(fh * sc));
+      const c = prevC.getContext("2d"); c.clearRect(0, 0, prevC.width, prevC.height);
+      c.drawImage(im, (f % st.cols) * fw, Math.floor(f / st.cols) * fh, fw, fh, 0, 0, prevC.width, prevC.height);
+      if (st.mode === "once" && t > n / Math.max(st.fps, 0.1) + 0.6) t0 = performance.now();
+      raf = requestAnimationFrame(tick);
+    };
+    const gridNum = (key, min, max) => {
+      const i = ih("input", { type: "number", min, max, step: 1, value: st[key], style: "width:64px" });
+      i.addEventListener("input", () => { const v = Math.round(Number(i.value)); if (v >= min) { st[key] = Math.min(v, max); st.count = Math.min(st.count || 0, st.cols * st.rows); drawSheet(); } });
+      return i;
+    };
+    const fpsIn = ih("input", { type: "number", min: 0.1, max: 120, step: 0.5, value: st.fps, style: "width:64px" });
+    fpsIn.addEventListener("input", () => { const v = Number(fpsIn.value); if (v > 0) st.fps = v; });
+    const countIn = ih("input", { type: "number", min: 1, max: 1024, step: 1, value: st.count || "", placeholder: "all", style: "width:64px" });
+    countIn.addEventListener("input", () => { const v = Math.round(Number(countIn.value)); st.count = v > 0 ? Math.min(v, st.cols * st.rows) : 0; drawSheet(); });
+    const modes = [["loop", "loop (at the speed below)"], ["once", "once (stays on the last frame)"]];
+    if (opts.life) modes.push(["life", "over the effect's life (an explosion, an impact)"]);
+    if (opts.bind) modes.push(["bind", "follows a game number (0 to 1)"]);
+    if (opts.run) modes.push(["run", "follows the run (one pass of the frames per stride)"]);
+    const modeSel = ih("select", {}, modes.map(([v, l]) => ih("option", { value: v }, l)));
+    modeSel.value = modes.some(m => m[0] === st.mode) ? st.mode : "loop"; st.mode = modeSel.value;
+    const paramIn = ih("input", { type: "text", value: st.param, placeholder: "charge", list: "imgFrameParams", style: "width:120px" });
+    const paramRow = ih("span", {}, "number ", paramIn, ih("datalist", { id: "imgFrameParams" }, (opts.params || []).map(p => ih("option", { value: p }))));
+    const syncMode = () => { st.mode = modeSel.value; paramRow.style.display = st.mode === "bind" ? "" : "none"; t0 = performance.now(); };
+    modeSel.addEventListener("change", syncMode); paramIn.addEventListener("input", () => { st.param = paramIn.value.trim(); });
+    syncMode();
+    const done = () => {
+      cancelAnimationFrame(raf);
+      const o = cur(), out = { cols: st.cols, rows: st.rows, fps: st.fps, mode: st.mode, w: Math.round(SW / st.cols * 100) / 100, h: Math.round(SH / st.rows * 100) / 100 };
+      if (o.count < st.cols * st.rows) out.count = o.count;
+      if (st.mode === "bind" && st.param) out.param = st.param;
+      close(out);
+    };
+    box.append(ih("h3", {}, "Frames of " + img.file),
+      ih("p", { class: "imglib-dim" }, "A sheet is one picture with the frames in a grid, read left to right, top to bottom. Say how many columns and rows it has; “frames used” is for a last row that is not full."),
+      ih("div", { class: "imglib-row" }, "columns", gridNum("cols", 1, 32), "rows", gridNum("rows", 1, 32), "frames used", countIn, "speed", fpsIn, "per second"),
+      ih("div", { class: "imglib-row" }, "plays", modeSel, paramRow), info,
+      ih("div", { class: "imglib-row", style: "align-items:flex-start" }, ih("div", { class: "imglib-stage" }, sheetC), ih("div", {}, ih("div", { class: "imglib-dim" }, "preview"), prevC)),
+      ih("div", { class: "imglib-row" }, ih("button", { class: "pri", onclick: done }, "Use these frames"), ih("button", { onclick: () => { cancelAnimationFrame(raf); close(null); } }, "Cancel")));
+    drawSheet(); raf = requestAnimationFrame(tick);
   });
 }
 
@@ -2749,6 +2854,7 @@ function uiNode(el, ctx, item, path, inBox, boxAlign, T, st) {
       const url = imgUrl(uiFmt(el.file ?? "", ctx, item));
       const sl = Array.isArray(el.slice) && el.slice.length === 4 ? el.slice : null;
       if (url && sl) base.push("box-sizing:border-box", "border-style:solid", `border-width:${sl[1]}px ${sl[2]}px ${sl[3]}px ${sl[0]}px`, `border-image:url(${url}) ${sl[1]} ${sl[2]} ${sl[3]} ${sl[0]} fill stretch`);
+      else if (url && imgIsSheet(el)) { base.push(`background:0 0 / ${Math.max(el.cols || 1, 1) * 100}% ${Math.max(el.rows || 1, 1) * 100}% no-repeat url(${url})`); n.dataset.sheet = JSON.stringify({ cols: el.cols, rows: el.rows, count: el.count, fps: el.fps, mode: el.mode }); }   // a sheet: one cell, stretched to the box (the timer below plays it)
       else if (url) base.push(`background:center / ${{ stretch: "100% 100%", contain: "contain", cover: "cover", center: "auto" }[el.fit || "stretch"]} no-repeat url(${url})`);
       else base.push("background:#ffffff14", "outline:1px dashed #ffffff55");
       if (el.tint) base.push(`opacity:${(() => { const c = uiCss(uiFmt(el.tint, ctx, item), T); const m = /rgba\(.*,([0-9.]+)\)$/.exec(c); return m ? m[1] : 1; })()}`);
@@ -2832,6 +2938,16 @@ function uiParentList(def, path) {
   return [uiGet(def, path.slice(0, -2))[path[path.length - 2]], last];
 }
 /* The Pictures tab: the picture library (cut-out tool and all) as a page of its own */
+/* the Menus preview plays sheet images: one cell at a time, by CSS background position (a timer, while the Menus tab is open) */
+setInterval(() => {
+  if (typeof S === "undefined" || S.tab !== "menus") return;
+  const now = performance.now() / 1000;
+  document.querySelectorAll("#main [data-sheet]").forEach(n => {
+    let c; try { c = JSON.parse(n.dataset.sheet); } catch (e) { return; }
+    const cols = Math.max(c.cols || 1, 1), rows = Math.max(c.rows || 1, 1), f = imgFrameAt(c, now);
+    n.style.backgroundPosition = `${cols > 1 ? (f % cols) / (cols - 1) * 100 : 0}% ${rows > 1 ? Math.floor(f / cols) / (rows - 1) * 100 : 0}%`;
+  });
+}, 80);
 function tabPictures() {
   return h("div", {}, h("h2", {}, "Pictures"), h("p", { class: "lead" }, "Hand-drawn art for menus, and for the puppets, weapons and arena in their own studios. Upload a drawing or photo, cut out the part you need (remove the paper, crop, erase with a brush, lasso) and keep PNG transparency. Pictures are shared by every pack and every studio. Bring them into the game folder with py tools/studio/sync_images.py pull (they go to art/library/)."),
     h("button", { class: "btn primary", onclick: () => imgPicker({ title: "Pictures" }).then(() => renderMain()) }, "Open the picture library"),
@@ -3023,7 +3139,9 @@ function uiSidebar(def, st, editable, f, redraw, re) {
     case "image": props.append(row("picture", [textField(el, "file", f, { placeholder: "frame.png  or  {item.icon}", after }), h("button", { class: "btn small", onclick: async () => { const p = await imgPicker({ pick: true, title: "Pick a picture" }); if (p) { el.file = p; touch(f); redraw(); } } }, "choose from the library…")], "A picture of the library (Pictures tab). It may hold {variables}, so a list can show a different one per item. The game reads art/library/ (py tools/studio/sync_images.py pull)."),
       row("fit", selectField(el, "fit", f, ["stretch", "contain", "cover", "center"], { optional: true, emptyLabel: "stretch", after }), "contain = whole picture, keeps its shape; cover = fills the box, may crop; center = its own size."),
       row("nine-patch margins", [0, 1, 2, 3].map(i => { const inp = h("input", { type: "number", min: 0, style: "width:64px", value: Array.isArray(el.slice) ? el.slice[i] : "", placeholder: ["left", "top", "right", "bottom"][i] }); inp.addEventListener("change", () => { const cur = Array.isArray(el.slice) ? el.slice.slice() : [0, 0, 0, 0]; cur[i] = Math.max(0, Number(inp.value) || 0); if (cur.every(x => x === 0)) delete el.slice; else el.slice = cur; touch(f); after(); }); return inp; }), "For a frame / panel picture: the corners (these many pixels of the picture) stay as drawn and the middle stretches. Leave empty for a plain picture."),
-      row("tint", col("tint", { none: true }), "Multiplies the picture's colours (white or empty = as drawn).")); break;
+      row("tint", col("tint", { none: true }), "Multiplies the picture's colours (white or empty = as drawn)."),
+      row("frames", [h("button", { class: "btn small", onclick: async () => { const r = await imgFramesDialog({ file: el.file, cols: el.cols, rows: el.rows, count: el.count, fps: el.fps, mode: el.mode }, {}); if (!r) return; for (const k of ["cols", "rows", "count", "fps", "mode"]) delete el[k]; if (r.cols * r.rows > 1) { el.cols = r.cols; el.rows = r.rows; if (r.count) el.count = r.count; el.fps = r.fps; el.mode = r.mode; } touch(f); redraw(); } }, imgIsSheet(el) ? `Frames… (${imgFrameCount(el)}, ${el.mode || "loop"} at ${el.fps ?? 12}/s)` : "Frames…"),
+        imgIsSheet(el) ? h("span", { class: "hint" }, "A sheet shows one cell stretched to the box (fit and nine-patch do not apply).") : null], "Make this picture a sheet of frames (a grid): columns, rows, speed, loop or once.")); break;
     case "bar": props.append(row("value", textField(el, "value", f, { after }), "0 to 1: a number, or a {name} from the context."), row("fill", col("fill")), row("background", col("back"))); break;
     case "repeat": props.append(row("source", textField(el, "source", f, { list: "uiLists", after }), "A list in the context: one copy of the template per item."), row("layout", selectField(el, "layout", f, ["vbox", "hbox", "grid", "anchored"], { optional: true, emptyLabel: "vbox", after })),
       row("columns", num("columns", { def: 2, integer: true, min: 1 })), row("gap", num("gap", { def: 8 })), h("p", { class: "dim" }, "Select the 'template' row in the outline to edit what each item looks like. {item.name} and {item.id} read the current item.")); break;
