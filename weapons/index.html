@@ -798,6 +798,107 @@ async function imgFramesDialog(img, opts = {}) {
   });
 }
 
+/* Text polish, shared by the four studios (inlined by each build script, like image_lib.js).
+   The screens show a lot of text that comes straight from data: field names like max_hp, one-word labels, descriptions that start in lower case and have no full stop. This watches the page and tidies
+   what is DISPLAYED (never the values or ids behind it):
+     - names and labels: underscores become spaces, the first letter is a capital, known abbreviations are upper case (hp -> HP, xp -> XP, pct -> %);
+     - descriptions (hints, lead paragraphs): the first letter is a capital, so is the first letter of each later sentence, snake_case words inside them are spoken words, and a sentence that ends in
+       a letter gets a full stop;
+     - tooltips and placeholders: the first letter is a capital.
+   It changes text nodes only (never textContent), so it does not trigger itself. Anything inside code, pre, kbd, textarea, or an element with data-nopolish is left alone, and so are file names,
+   paths and dotted names in a description (sync_images.py, map.camera_leash). A text that is already fine is not touched, so running it twice changes nothing. */
+const TP_ACRONYMS = { hp: "HP", xp: "XP", ui: "UI", id: "ID", ids: "IDs", dot: "DOT", hot: "HOT", aoe: "AOE", fov: "FOV", hud: "HUD", json: "JSON", url: "URL", fps: "FPS", bpm: "BPM", sfx: "SFX", vfx: "VFX", fx: "FX", rgb: "RGB", svg: "SVG", png: "PNG", wav: "WAV", mp3: "MP3", ogg: "OGG", ai: "AI", npc: "NPC", dps: "DPS", pct: "%", cpu: "CPU" };
+const TP_SKIP = "code, pre, kbd, textarea, script, style, svg, canvas, [data-nopolish]";
+/* [selector, kind]: key = a field or module name; title = a heading, button or option; sentence = a description; unit = a short note after a field */
+const TP_RULES = [
+  [".row > label, label, legend, .nm, .mod-name, .prm .nm, .lbl, .kv > b", "key"],
+  ["h2, h3, h1 small, summary, th, .part-type, .sub, .grp, .sec, .used-by, .pal-swatch, .ty, #puppetDlg td:first-child", "title"],
+  ["button, .btn, option, .tag, .chip", "title"],
+  [".hint, p.lead, p.dim, .lead, .toast, .mod-desc, .mod-needs, .ds, .pill, #statusText, #editHint, #hintBar, .parts-hint, .help, .mf, .dim, small, .dlg p, .drop-text", "sentence"],
+  [".unit", "unit"],
+];
+const TP_FILE = /^\.(py|json|js|gd|png|wav|mp3|ogg|tscn|txt|md|csv|html|css|bat|exe)\b/;
+const TP_SNAKE = /[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+/g;
+const TP_SENTENCE_START = /([a-z0-9)]{2,}[.!?]\s+)([a-z])/g;
+const TP_ABBREV = /(?:e\.g|i\.e|vs|etc)\.\s+$/;
+function tpCap(s) { return s.replace(/^(\W*?)([a-z])/, (m, a, b) => a + b.toUpperCase()); }
+/* snake_case (and UPPER_SNAKE) words inside a text become spaced words (not file names, paths or dotted names) */
+function tpSnake(s) {
+  return s.replace(TP_SNAKE, (m, off) => {
+    const before = s[off - 1], after = s.slice(off + m.length);
+    if (before === "." || before === "/" || before === String.fromCharCode(92) || before === "-" || before === "=") return m;
+    if (TP_FILE.test(after) || after[0] === "(" || after[0] === "/") return m;
+    const up = m === m.toUpperCase();
+    return m.split("_").map(w => TP_ACRONYMS[w.toLowerCase()] || (up ? w.toLowerCase() : w)).join(" ");
+  });
+}
+/* a sentence that starts again after a full stop starts with a capital (not after e.g. / i.e. / vs.) */
+function tpSentenceCaps(s) {
+  return s.replace(TP_SENTENCE_START, (m, a, b, off) => TP_ABBREV.test(s.slice(Math.max(0, off - 6), off + a.length)) ? m : a + b.toUpperCase());
+}
+/* a name: spaced, acronyms in capitals, the first letter a capital */
+function tpName(s) {
+  const t = s.trim();
+  if (!t) return s;
+  let out = tpSnake(t);
+  if (/^[A-Za-z]+$/.test(out) && TP_ACRONYMS[out.toLowerCase()]) out = TP_ACRONYMS[out.toLowerCase()];
+  return s.replace(t, tpCap(out));
+}
+function tpSentence(s, last, short) {
+  if (/ = |\n/.test(s) || /^\s*[a-z0-9_]+\.(py|json|js|gd|png|wav|ogg|tscn|txt|md)\b/.test(s)) return s;   // code-like lines and file names stay as they are
+  let t =tpSentenceCaps(tpCap(tpSnake(s))).replace(/`([^`]+)`/g, "“$1”");   // (a name in backticks is quoted)
+  const tail = t.trimEnd();
+  const ends = /[A-Za-z]$/.test(tail) || (/\)$/.test(tail) && !/^\s*\(/.test(t));   // a letter, or a closing bracket of a sentence (not a whole-line "(fixed: ...)")
+  if (last && ends && t.trim().split(/\s+/).length >= (short ? 2 : 3) && !/\d{1,2}:\d{2}/.test(t)) t = t.replace(/\s*$/, m => "." + m);   // (not a status line with a time in it)
+  return t;
+}
+/* a short note after a field: a bare unit (px, s, waves) stays as it is; a phrase (three words or more, or with a bracket) is a sentence fragment and gets a capital */
+function tpUnit(s) {
+  const w = s.trim().split(/\s+/).length;
+  if (w === 1 && TP_ACRONYMS[s.trim().toLowerCase()]) return s.replace(s.trim(), TP_ACRONYMS[s.trim().toLowerCase()]);   // a bare unit that is an abbreviation (xp -> XP)
+  if (w < 3 && !/\(/.test(s) && !/^\s*default\b/.test(s)) return s;
+  return tpCap(tpSnake(s.replace(/^(\s*)s(?=[: ])/, "$1seconds").replace(/^(\s*)px(?=[: ])/, "$1pixels").replace(/^(\s*)x(?= (per|of|the|speed)\b)/, "$1×")));   // a leading "s" or "px" in a phrase is spelled out, and "x" is a multiplication sign
+}
+function tpFixElement(e) {
+  if (!e || e.nodeType !== 1 || e.closest(TP_SKIP)) return;
+  for (const [sel, kind] of TP_RULES) {
+    if (!e.matches(sel)) continue;
+    const texts = [...e.childNodes].filter(n => n.nodeType === 3 && n.nodeValue.trim());
+    if (!texts.length) break;
+    const first = texts[0], lastNode = texts[texts.length - 1];
+    if (kind === "key" || kind === "title") {
+      if (first.nodeValue.trim().length > 1) { const v = tpName(first.nodeValue); if (v !== first.nodeValue) { if (e.tagName === "OPTION" && !e.title) e.title = first.nodeValue.trim(); first.nodeValue = v; } }
+    } else if (kind === "sentence") {
+      const plain = e.children.length === 0;
+      for (const n of texts) { const v = tpSentence(n.nodeValue, plain && n === lastNode, e.matches(".mod-desc")); if (v !== n.nodeValue) n.nodeValue = v; }
+    } else if (kind === "unit") { const v = tpUnit(first.nodeValue); if (v !== first.nodeValue) first.nodeValue = v; }
+    break;
+  }
+  if (e.tagName === "OPTION") return;   // (an option's tooltip is its raw name, kept as it is)
+  for (const a of ["placeholder", "title", "aria-label"]) { const v = e.getAttribute(a); if (v && /^\W*[a-z]/.test(v)) { const c = tpCap(v); if (c !== v) e.setAttribute(a, c); } }
+}
+const TP_ALL = TP_RULES.map(r => r[0]).join(",") + ", [placeholder], [title], [aria-label]";
+function tpFixTree(root) {
+  if (!root || root.nodeType !== 1) return;
+  tpFixElement(root);
+  for (const e of root.querySelectorAll(TP_ALL)) tpFixElement(e);
+}
+function textPolishWatch(root) {
+  root = root || document.body;
+  tpFixTree(root);
+  let queue = new Set(), timer = null;
+  const flush = () => { timer = null; const q = queue; queue = new Set(); for (const n of q) { if (n.nodeType === 3) tpFixElement(n.parentElement); else tpFixTree(n); } };
+  new MutationObserver(muts => {
+    for (const m of muts) for (const n of m.addedNodes) queue.add(n);
+    if (queue.size && !timer) timer = setTimeout(flush, 0);
+  }).observe(root, { childList: true, subtree: true });
+}
+/* starts by itself: every studio that inlines this file gets it */
+if (typeof document !== "undefined") {
+  const go = () => textPolishWatch(document.body);
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go); else go();
+}
+
 
 const firebaseConfig = {
   apiKey: "AIzaSyBt9shBGY0WwQABtPpLVAz-YVrO4pKmwFU",
