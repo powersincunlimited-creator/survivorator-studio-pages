@@ -126,7 +126,7 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
     <option value="all">4 directions</option><option value="sides">Left &amp; right only</option></select>
   <select id="charSel" aria-label="Character" title="Which character you are editing. Each has its own cloud save."></select>
   <button type="button" id="puppetBtn" title="New puppet / Save as, Delete, Rename to the naming convention, Size of this puppet">Puppet…</button>
-  <div class="seg" id="viewSeg" role="group" aria-label="Drawing">
+  <div class="seg" id="viewSeg" role="group" aria-label="Drawing" title="Which drawing you are EDITING (the big canvas). The live preview on the right has its own facing buttons.">
     <button type="button" data-view="front">Front</button><button type="button" data-view="back">Back</button><button type="button" data-view="side" class="on" title="The left-facing drawing (stored as 'side' in the data)">Left</button><button type="button" data-view="right">Right</button>
   </div>
   <button type="button" id="undo" title="Ctrl+Z">Undo</button><button type="button" id="redo" title="Ctrl+Y">Redo</button>
@@ -176,7 +176,7 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
       <div id="pvWrap"><svg id="pv" aria-label="Animated preview"></svg></div>
       <div class="gh" id="ghPv" title="Drag to resize the preview · double-click to reset"></div>
       <div class="pvbar">
-        <div class="seg" id="pvFace" role="group" aria-label="Preview facing"><button type="button" data-f="down">Front</button><button type="button" data-f="up">Back</button><button type="button" data-f="left" class="on">Left</button><button type="button" data-f="right">Right</button></div>
+        <div class="seg" id="pvFace" role="group" aria-label="Preview facing" title="Which way the LIVE PREVIEW faces (it does not change the drawing you are editing)."><button type="button" data-f="down">Front</button><button type="button" data-f="up">Back</button><button type="button" data-f="left" class="on">Left</button><button type="button" data-f="right">Right</button></div>
         <div class="seg" id="pvMove" role="group" aria-label="Motion"><button type="button" data-m="idle">Idle</button><button type="button" data-m="run" class="on">Run</button></div>
         <div class="seg" id="pvAim" role="group" aria-label="Arm aim"><button type="button" data-a="off">No aim</button><button type="button" data-a="sweep" class="on">Sweep</button><button type="button" data-a="fixed">Fixed</button><button type="button" id="pvFire">Fire</button></div>
         <div class="f"><label for="pvAngle">Aim °</label><input id="pvAngle" type="range" min="-180" max="180" value="0"></div>
@@ -1441,8 +1441,8 @@ function doCopy(o, mode, cut) {
     srcM: container ? restWorld(root, container) : null, style: isPoly(o) ? null : { tint: o.tint, ow: o.ow, oc: o.oc } };
   clipSave();
   if (cut) {
-    change(() => { if (kind === "contents") o.kids = []; else parent.kids.splice(parent.kids.indexOf(o), 1); });
-    if (kind !== "contents") { ui.sel = null; select({ obj: parent }); }
+    change(() => { if (kind === "contents") o.kids = []; else { parent.kids.splice(parent.kids.indexOf(o), 1); ui.sel = { obj: parent }; } });   // the selection moves to the parent before the redraw
+    if (kind !== "contents") select({ obj: parent });
     setStatus("Cut to the clipboard (Ctrl+Z puts it back)", "ok");
   } else { setStatus("Copied to the clipboard", "ok"); renderInspector(); }
 }
@@ -1523,7 +1523,7 @@ function grow(f) { const p = ui.sel.obj.poly; const c = centroid(p.pts); change(
 function deleteSelected() {
   const o = ui.sel && ui.sel.obj; if (!o) return; const view = ui.view, parent = selectedParent(); if (!parent) return;
   if (!isPoly(o) && (rigNameOf(view, o) || containsRig(o))) return;
-  change(() => { parent.kids.splice(parent.kids.indexOf(o), 1); }); ui.sel = null; renderTree(); renderInspector();
+  change(() => { parent.kids.splice(parent.kids.indexOf(o), 1); ui.sel = null; });   // the selection goes before change() redraws: the inspector must not look for a part that is gone
 }
 
 /* One drawing as the exact mirror of another (Left = "side" in the data, Right = "right"): x flipped, rotations negated, winding reversed, fresh part ids,

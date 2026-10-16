@@ -39,6 +39,7 @@ p.lead { color: var(--dim); margin: 0 0 14px; max-width: 80ch; }
 .chip.ok { color: var(--ok); } .chip.warn { color: var(--warn); } .chip.bad { color: var(--bad); cursor: pointer; }
 input[type=text], input[type=number], select, textarea { background: var(--input); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; min-width: 0; }
 input[type=number] { width: 110px; }
+.row .ctl > input[type=text]:only-child, input.wide { width: min(100%, 440px); max-width: 440px; flex: 1 1 220px; }   /* grows to 440px, shrinks so a button beside it stays on the line */   /* a lone text field (name, blurb, description) is wide enough to read */
 input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 input.bad, select.bad, textarea.bad { border-color: var(--bad); }
 textarea { width: 100%; font-family: var(--mono); font-size: 12px; min-height: 260px; }
@@ -48,8 +49,9 @@ input[type=color] { width: 40px; height: 28px; padding: 0; background: none; bor
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
 .row { display: grid; grid-template-columns: 190px 1fr; gap: 10px; align-items: start; padding: 5px 0; border-bottom: 1px solid #ffffff08; }
 .row > label { color: var(--text); padding-top: 5px; }
+.row > div { min-width: 0; }   /* a wide field never pushes the page sideways */
 .row .hint { color: var(--dim); font-size: 12px; margin-top: 3px; max-width: 90ch; }
-.row .ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }   /* a row of controls, in a form row or on its own */
 .row .unit { color: var(--dim); font-size: 12px; }
 .row.changed > label::after { content: " ●"; color: var(--accent2); }
 .split { display: grid; grid-template-columns: 250px 1fr; gap: 16px; }
@@ -71,12 +73,19 @@ table.t { border-collapse: collapse; width: 100%; } table.t th { text-align: lef
 .tag { display: inline-block; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 0 8px; margin: 1px 3px 1px 0; font-size: 12px; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; } .kv b { color: var(--dim); font-weight: 500; }
 .dim { color: var(--dim); }
-@media (max-width: 760px) { #app { grid-template-columns: 1fr; grid-template-rows: 48px auto 1fr; } header { grid-column: 1; } nav { flex-direction: row; overflow-x: auto; padding: 6px; } nav h4 { display: none; }
+@media (max-width: 760px) { #app { grid-template-columns: minmax(0, 1fr); grid-template-rows: 48px auto 1fr; } header { grid-column: 1; gap: 6px; padding: 0 8px; min-width: 0; } header .logo { font-size: 12px; line-height: 1.1; } #packSelect { max-width: 120px; } header .chip { padding: 2px 7px; font-size: 11px; } nav { flex-direction: row; overflow-x: auto; padding: 6px; } nav h4 { display: none; }
   .split { grid-template-columns: 1fr; } .row { grid-template-columns: 1fr; } }
 
 .modal { position: fixed; inset: 0; background: #000a; display: grid; place-items: center; z-index: 20; }
 .dlg { background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; padding: 18px 20px; width: min(460px, 92vw); }
 .dlg p { margin: 0 0 10px; }
+
+.pic-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-top: 8px; }
+.pic-card { display: flex; flex-direction: column; gap: 4px; align-items: stretch; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; cursor: pointer; font-size: 12px; }
+.pic-card:hover { border-color: var(--accent); }
+.pic-card b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.pic-thumb { display: grid; place-items: center; height: 96px; border-radius: 5px; background: repeating-conic-gradient(#1b2036 0 25%, #12162a 0 50%) 0 0 / 14px 14px; }
+.pic-thumb img { max-width: 100%; max-height: 96px; object-fit: contain; }
 
 </style>
 <style>
@@ -2715,7 +2724,7 @@ function tabEffects() {
   else {
     form.append(h("details", { class: "card", open: true }, h("summary", {}, "Colours"), row("main colour", colorField(p, "c1", f, { after: re })), row("glow colour", colorField(p, "c2", f, { after: re })),
       h("div", { class: "ctl", style: "margin:8px 0" }, h("span", { style: `display:inline-block;width:120px;height:24px;border-radius:6px;background:linear-gradient(90deg,${p.c1},${p.c2})` }), h("span", { class: "dim" }, "the pair"))),
-      h("details", { class: "card", open: true }, h("summary", {}, "Styles"), VFX_LAYERS.map(([k, label]) => row(k, [textField(p, k, f, { list: "vfx_" + k, optional: true }), h("span", { class: "unit" }, label)], null, p[k] !== undefined))),
+      h("details", { class: "card", open: true }, h("summary", {}, "Styles"), VFX_LAYERS.map(([k, label]) => row(k, [selectField(p, k, f, used(k), { optional: true, emptyLabel: "(none)" }), h("span", { class: "unit" }, label)], null, p[k] !== undefined))),
       h("details", { class: "card" }, h("summary", {}, "Tuning"), VFX_TUNING.map(([k, label]) => row(k, [numField(p, k, f, { optional: true, min: 0 }), h("span", { class: "unit" }, label)], null, p[k] !== undefined)), h("p", { class: "dim" }, "Only the ones a chosen style reads do anything.")),
       h("button", { class: "btn small danger", onclick: async () => { if (await sure("Remove this hero's effects profile?")) { delete prof[sel]; touch(f); re(); } } }, "Remove its effects"));
   }
@@ -2951,7 +2960,25 @@ setInterval(() => {
 function tabPictures() {
   return h("div", {}, h("h2", {}, "Pictures"), h("p", { class: "lead" }, "Hand-drawn art for menus, and for the puppets, weapons and arena in their own studios. Upload a drawing or photo, cut out the part you need (remove the paper, crop, erase with a brush, lasso) and keep PNG transparency. Pictures are shared by every pack and every studio. Bring them into the game folder with py tools/studio/sync_images.py pull (they go to art/library/)."),
     h("button", { class: "btn primary", onclick: () => imgPicker({ title: "Pictures" }).then(() => renderMain()) }, "Open the picture library"),
-    h("p", { class: "dim" }, "In the Menus tab, add an element of type “image” and choose its picture there."));
+    h("p", { class: "dim" }, "In the Menus tab, add an element of type “image” and choose its picture there."),
+    picturesGallery());
+}
+/* the library at a glance: a thumbnail, name, size and frames for each picture (click one to open the library to cut or replace it) */
+function picturesGallery() {
+  const box = h("div", {}, h("p", { class: "dim" }, "Loading the library…"));
+  imgList().then(files => {
+    const names = Object.keys(files).sort(), grid = h("div", { class: "pic-grid" });
+    box.innerHTML = "";
+    if (!names.length) { box.append(h("p", { class: "dim" }, "No pictures yet: press “Open the picture library” and upload one.")); return; }
+    const total = names.reduce((s, n) => s + (files[n].size || 0), 0);
+    box.append(h("h3", {}, `In the library (${names.length}, ${imgKb(total)})`), grid);
+    for (const n of names) {
+      const f = files[n], url = imgUrl(n);
+      grid.append(h("button", { class: "pic-card", title: "Open the library to cut, replace or delete it", onclick: () => imgPicker({ title: "Pictures" }).then(() => renderMain()) },
+        h("span", { class: "pic-thumb" }, url ? h("img", { src: url, alt: n }) : h("span", { class: "dim" }, "…")), h("b", {}, n.replace(/\.png$/, "")), h("span", { class: "dim" }, `${f.w || "?"} × ${f.h || "?"} · ${imgKb(f.size || 0)}`)));
+    }
+  }).catch(e => { box.innerHTML = ""; box.append(h("p", { class: "dim" }, "Could not read the library: " + e.message)); });
+  return box;
 }
 function uiNewElement(type, existing) {
   let n = 1; const used = new Set(existing);
@@ -3334,7 +3361,7 @@ function tabMeta() {
     form.append(problemBlock(problemsFor("meta", `'${it.id}'`)),
       h("details", { class: "card", open: true }, h("summary", {}, it.name || it.id),
         row("id", [h("span", {}, it.id), h("span", { class: "unit" }, "(fixed: saves refer to it)")]), row("name", textField(it, "name", f, { after: re })), row("description", textField(it, "desc", f)),
-        row("kind", [selectField(it, "kind", f, Object.keys(META_KIND_HELP), { after: re })], META_KIND_HELP[it.kind]),
+        row("kind", [selectField(it, "kind", f, Object.keys(META_KIND_HELP), { after: () => { if (it.kind === "cosmetic" && !it.flag) it.flag = it.id; re(); } })], META_KIND_HELP[it.kind]),   // a new cosmetic starts with its id as the flag, so it is not an error until you type
         it.kind === "stat" ? [row("stat", selectField(it, "stat", f, C.stats.map(s => [s, (C.stat_labels[s] || s)]), { after: re })), row("per level", numField(it, "amount", f, { step: "any" }), C.pct_stats.includes(it.stat) ? "A percentage stat: 0.04 = +4%." : "A flat number.")] : null,
         it.kind === "unlock" ? [row("unlocks", selectField(it, "category", f, ["archetypes", "powers", "gear_sets", "fusion_recipes"], { after: re })), row("which", selectField(it, "target", f, (metaCats()[it.category] || []).map(i => [i, i]), { optional: true, emptyLabel: "(choose)" }))] : null,
         it.kind === "run_mod" ? [row("modifier", selectField(it, "mod", f, Object.keys(META_MOD_HELP), { after: re }), META_MOD_HELP[it.mod]), row("per level", numField(it, "amount", f, { min: 0 }))] : null,
@@ -3401,8 +3428,12 @@ const S = {
 S.user = localStorage.getItem("studio_who") || "";
 
 const TABS = [
-  ["overview", "Overview", ""], ["rules", "Rules", "game"], ["presets", "Presets", "game"],
-  ["heroes", "Heroes", "heroes"], ["powers", "Powers", "powers"], ["gear", "Gear", "gear"], ["talents", "Talents", "talents"], ["achievements", "Achievements", "achievements"], ["meta", "Meta shop", "meta"], ["audio", "Audio", "audio"], ["menus", "Menus", "ui"], ["pictures", "Pictures", ""], ["theme", "Theme", "ui"], ["enemies", "Enemies", "enemies"], ["bosses", "Bosses", "bosses"], ["abilities", "Abilities", "abilities"], ["fusion", "Fusion", "fusion"], ["looks", "Power looks", "looks"], ["effects", "Hero effects", "hero_effects"], ["shop", "Shop", "shop"], ["content", "All content", ""], ["problems", "Problems", ""],
+  ["overview", "Overview", ""], ["rules", "Rules", "game"], ["presets", "Presets", "game"], ["shop", "Shop", "shop"],
+  ["heroes", "Heroes", "heroes"], ["powers", "Powers", "powers"], ["looks", "Power looks", "looks"], ["effects", "Hero effects", "hero_effects"], ["fusion", "Fusion", "fusion"], ["gear", "Gear", "gear"], ["talents", "Talents", "talents"],
+  ["enemies", "Enemies", "enemies"], ["bosses", "Bosses", "bosses"], ["abilities", "Abilities", "abilities"],
+  ["achievements", "Achievements", "achievements"], ["meta", "Meta shop", "meta"],
+  ["audio", "Audio", "audio"], ["menus", "Menus", "ui"], ["pictures", "Pictures", ""], ["theme", "Theme", "ui"],
+  ["problems", "Problems", ""], ["content", "All content", ""],
 ];
 
 // ---------------------------------------------------------------- firebase
@@ -3514,7 +3545,7 @@ function numField(obj, key, file, o = {}) {
   return input;
 }
 function textField(obj, key, file, o = {}) {
-  const input = h("input", { type: "text", placeholder: o.placeholder || "", list: o.list });
+  const input = h("input", { type: "text", placeholder: o.placeholder || "", list: o.list, class: /^(name|blurb|description|desc|text|label|title|flavor|four|currency|tooltip|hint|message|subtitle|caption)/.test(key) ? "wide" : "" });   // prose fields are wide enough to read
   input.value = obj[key] ?? "";
   input.addEventListener("change", () => { if (input.value === "" && o.optional) delete obj[key]; else obj[key] = input.value; touch(file); if (o.after) o.after(); });
   return input;
@@ -3641,9 +3672,12 @@ function renderPackSelect() {
   for (const p of S.packs) sel.append(h("option", { value: p }, p));
   sel.value = S.pack || "";
 }
+/* the sidebar's sections: the first tab of each starts it under its heading (the order of TABS above is the order shown, so keep each section's tabs together there) */
+const NAV_SECTIONS = { overview: "Game", heroes: "Heroes and powers", enemies: "Enemies", achievements: "Progress", audio: "Look and sound", problems: "Checks" };
 function renderNav() {
   const nav = $("#nav"); nav.innerHTML = "";
   for (const [id, label] of TABS) {
+    if (NAV_SECTIONS[id]) nav.append(h("h4", {}, NAV_SECTIONS[id]));
     const b = h("button", { class: S.tab === id ? "on" : "", onclick: async () => { S.tab = id; renderNav(); renderMain(); } }, h("span", {}, label), id === "problems" && S.problems.length ? h("span", { class: "badge" }, S.problems.length) : null);
     nav.append(b);
   }
@@ -3667,7 +3701,29 @@ function renderMain() {
   const fn = { overview: tabOverview, rules: tabRules, presets: tabPresets, heroes: tabHeroes, powers: tabPowers, gear: tabGear, talents: tabTalents, achievements: tabAchievements, meta: tabMeta, audio: tabAudio, menus: tabMenus, pictures: tabPictures, theme: tabTheme, enemies: tabEnemies, bosses: tabBosses, abilities: tabAbilities, fusion: tabFusion, looks: tabLooks, effects: tabEffects, shop: tabShop, content: tabContent, problems: tabProblems }[S.tab];
   m.append(h("datalist", { id: "abilityIds" }, ids("abilities", "abilities").map(i => h("option", { value: i }))));
   m.append(fn());
+  addListFilters(m);
+  addIconLabels(m);
   m.scrollTop = y;
+}
+/* a button that is only an icon gets a tooltip and a screen-reader label, unless its tab gave it one */
+const ICON_LABELS = { "✕": "Remove", "×": "Remove", "↑": "Move up", "↓": "Move down", "⧉": "Duplicate", "▶": "Play", "⏹": "Stop", "↺": "Put back to the default" };
+function addIconLabels(root) {
+  for (const b of root.querySelectorAll("button")) {
+    const lab = ICON_LABELS[b.textContent.trim()];
+    if (!lab) continue;
+    if (!b.title) b.title = lab;
+    if (!b.getAttribute("aria-label")) b.setAttribute("aria-label", b.title);
+  }
+}
+/* every long list (10 or more entries) gets a filter box, unless its tab already made one */
+function addListFilters(root) {
+  for (const list of root.querySelectorAll(".list")) {
+    const items = [...list.querySelectorAll(":scope > .item")];
+    if (items.length < 10 || list.querySelector("input")) continue;
+    const q = h("input", { type: "text", placeholder: "filter…", style: "margin:6px;width:calc(100% - 12px)" });
+    q.addEventListener("input", () => { const s = q.value.trim().toLowerCase(); for (const it of items) it.style.display = !s || it.textContent.toLowerCase().includes(s) ? "" : "none"; });
+    list.prepend(q);
+  }
 }
 
 // ---- overview

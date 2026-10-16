@@ -299,6 +299,8 @@
     <span class="status-pill" id="statusPill"><span class="dot"></span><span id="statusText">Loading&hellip;</span></span>
     <span class="nickname-label" id="nicknameLabel" title="Click to change your display name">You: &mdash;</span>
     <div class="spacer"></div>
+    <button class="btn" id="btnUndo" disabled title="Undo the last change to this shape (Ctrl+Z)">&#8630; Undo</button>
+    <button class="btn" id="btnRedo" disabled title="Redo (Ctrl+Y)">&#8631; Redo</button>
     <button class="btn" id="btnActivity" title="Recent changes across all shapes">Activity</button>
     <button class="btn" id="btnRefresh" title="Re-fetch the latest saved shapes from the server">&#8635; Refresh</button>
     <button class="btn" id="btnCopyShape" title="Copy this shape's parts">Copy Shape</button>
@@ -2072,6 +2074,7 @@ function selectShape(item){
   updateShapeMeta();
   updatePresenceBadge();
   writePresence();
+  undoRebase();
 }
 function updateShapeMeta(){
   const meta = document.getElementById('shapeMeta');
@@ -3169,6 +3172,7 @@ document.getElementById('btnReset').addEventListener('click', async ()=>{
   fitView(); renderStage(); renderParts(); renderMetaPanel(); buildNav(document.getElementById('navSearch').value);
   updateShapeMeta();
   setStatus('saved', 'Reset to original');
+  undoRebase();
 });
 
 /* ---------- copy/paste a WHOLE shape (all its parts) onto another one —
@@ -3204,7 +3208,49 @@ function setStatus(cls, text){
   pill.className = 'status-pill ' + cls;
   document.getElementById('statusText').textContent = text;
 }
+/* ---------- undo / redo (per shape, this tab only: switching shapes starts a new trail) ----------
+   undoBase is the shape's state as it was when the last edit settled; the first edit after a quiet moment pushes it on the stack, and edits within 450 ms of each other (a drag, a slider) are one step. */
+const undoStack = [], redoStack = [], UNDO_MAX = 100;
+let undoBase = null, undoOpen = false, undoTimer = null, applyingUndo = false;
+function undoState(){ return JSON.stringify({parts, meta}); }
+function undoRebase(){ undoStack.length = 0; redoStack.length = 0; undoOpen = false; clearTimeout(undoTimer); undoBase = current ? undoState() : null; updateUndoButtons(); }
+function noteEdit(){
+  if(applyingUndo || !current) return;
+  if(!undoOpen){ if(undoBase !== null){ undoStack.push(undoBase); if(undoStack.length > UNDO_MAX) undoStack.shift(); } redoStack.length = 0; undoOpen = true; }
+  clearTimeout(undoTimer);
+  undoTimer = setTimeout(() => { undoOpen = false; undoBase = undoState(); updateUndoButtons(); }, 450);
+  updateUndoButtons();
+}
+function updateUndoButtons(){
+  const u = document.getElementById('btnUndo'), r = document.getElementById('btnRedo');
+  if(u) u.disabled = !undoStack.length; if(r) r.disabled = !redoStack.length;
+}
+function undoRedo(dir){
+  if(!current) return;
+  if(undoOpen){ clearTimeout(undoTimer); undoOpen = false; undoBase = undoState(); }   // let a step in progress settle first
+  const from = dir < 0 ? undoStack : redoStack, to = dir < 0 ? redoStack : undoStack;
+  if(!from.length) return;
+  to.push(undoBase);
+  const s = JSON.parse(from.pop());
+  parts = s.parts; meta = s.meta; undoBase = JSON.stringify(s);
+  activePart = Math.min(activePart, Math.max(parts.length - 1, 0)); activeVert = -1;
+  stopPreview(true);
+  renderStage(); renderParts(); renderMetaPanel();
+  applyingUndo = true; try{ saveNow(); } finally { applyingUndo = false; }
+  updateUndoButtons();
+}
+document.getElementById('btnUndo').addEventListener('click', () => undoRedo(-1));
+document.getElementById('btnRedo').addEventListener('click', () => undoRedo(1));
+window.addEventListener('keydown', e => {
+  if(!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const tg = e.target, tag = tg && tg.tagName;
+  if(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (tg && tg.isContentEditable)) return;   // a text box keeps its own undo
+  const k = e.key.toLowerCase();
+  if(k === 'z' && !e.shiftKey){ e.preventDefault(); undoRedo(-1); }
+  else if(k === 'y' || (k === 'z' && e.shiftKey)){ e.preventDefault(); undoRedo(1); }
+});
 function scheduleSave(){
+  noteEdit();
   unsavedChanges = true;
   setStatus('edited', 'Unsaved');
   clearTimeout(saveTimer);
@@ -3216,6 +3262,7 @@ function scheduleSave(){
 // selectShape() reassigns current/parts for the next one.
 function saveNow(){
   if(!current) return;
+  noteEdit();
   clearTimeout(saveTimer);
   doSave();
 }
@@ -3544,10 +3591,12 @@ document.getElementById('btnRefresh').addEventListener('click', async () => {
 });
 
 /* ---------- boot ---------- */
+const OFFLINE = new URLSearchParams(location.search).has('offline');   // ?offline: never touch the cloud shapes (for trying things out; changes stay in this tab)
 async function boot(){
   buildNav('');
   updateNicknameLabel();
-  try{
+  if(OFFLINE) firestoreReady = false;
+  else try{
     await signInAnonymously(auth);
     await new Promise((resolve, reject) => {
       const unsub = onAuthStateChanged(auth, user => {
@@ -3564,7 +3613,7 @@ async function boot(){
     console.error('Firebase init failed:', e);
     firestoreReady = false;
   }
-  setStatus(firestoreReady ? 'saved' : 'edited', firestoreReady ? 'Ready' : 'Offline — changes will not be saved');
+  setStatus(firestoreReady ? 'saved' : 'edited', firestoreReady ? 'Ready' : (OFFLINE ? 'Offline (?offline) — changes are not saved' : 'Offline — changes will not be saved'));
   buildNav('');
   // open on the first real weapon so the page never shows empty
   const first = CATALOG[0].items[0];
