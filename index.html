@@ -20,11 +20,12 @@ header .logo { font-weight: 700; letter-spacing: .04em; color: var(--accent); }
 header .logo b { color: var(--accent2); }
 header .spacer { flex: 1; }
 nav { background: var(--panel); border-right: 1px solid var(--line); padding: 10px 8px; display: flex; flex-direction: column; gap: 3px; overflow: auto; }
-nav button { text-align: left; background: none; border: 0; padding: 8px 10px; border-radius: 6px; color: var(--dim); cursor: pointer; display: flex; justify-content: space-between; gap: 6px; }
+nav button { text-align: left; margin-left: 6px; background: none; border: 0; padding: 8px 10px; border-radius: 6px; color: var(--dim); cursor: pointer; display: flex; justify-content: space-between; gap: 6px; }
 nav button:hover { background: var(--panel2); color: var(--text); }
 nav button.on { background: var(--panel2); color: var(--text); box-shadow: inset 3px 0 var(--accent); }
 nav .badge { font-size: 11px; background: var(--bad); color: #fff; border-radius: 9px; padding: 0 6px; align-self: center; }
-nav h4 { margin: 12px 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); font-weight: 600; }
+nav h4 { margin: 16px 0 4px; padding: 7px 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--accent); font-weight: 700; background: var(--panel2); border-bottom: 2px solid var(--accent); border-radius: 5px 5px 0 0; }   /* a section heading: a shaded band with an underline, so it reads as different from the pages under it */
+nav h4:first-child { margin-top: 2px; }
 main { overflow: auto; padding: 18px 22px 60px; }
 h2 { margin: 0 0 4px; font-size: 20px; }
 h3 { margin: 18px 0 8px; font-size: 14px; text-transform: uppercase; letter-spacing: .07em; color: var(--accent); font-weight: 600; }
@@ -3429,8 +3430,8 @@ S.user = localStorage.getItem("studio_who") || "";
 
 const TABS = [
   ["overview", "Overview", ""], ["rules", "Rules", "game"], ["presets", "Presets", "game"], ["shop", "Shop", "shop"],
-  ["heroes", "Heroes", "heroes"], ["powers", "Powers", "powers"], ["looks", "Power looks", "looks"], ["effects", "Hero effects", "hero_effects"], ["fusion", "Fusion", "fusion"], ["gear", "Gear", "gear"], ["talents", "Talents", "talents"],
-  ["enemies", "Enemies", "enemies"], ["bosses", "Bosses", "bosses"], ["abilities", "Abilities", "abilities"],
+  ["heroes", "Heroes", "heroes"], ["powers", "Powers", "powers"], ["looks", "Power looks", "looks"], ["effects", "Hero effects", "hero_effects"], ["fusion", "Fusion", "fusion"], ["gear", "Gear", "gear"], ["talents", "Talents", "talents"], ["abilities", "Abilities", "abilities"],
+  ["enemies", "Enemies", "enemies"], ["bosses", "Bosses", "bosses"],
   ["achievements", "Achievements", "achievements"], ["meta", "Meta shop", "meta"],
   ["audio", "Audio", "audio"], ["menus", "Menus", "ui"], ["pictures", "Pictures", ""], ["theme", "Theme", "ui"],
   ["problems", "Problems", ""], ["content", "All content", ""],
