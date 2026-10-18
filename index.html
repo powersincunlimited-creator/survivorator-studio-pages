@@ -63,6 +63,7 @@ input[type=color] { width: 40px; height: 28px; padding: 0; background: none; bor
 .row .unit { color: var(--dim); font-size: 12px; }
 .row.changed > label::after { content: " ●"; color: var(--accent2); }
 .split { display: grid; grid-template-columns: 250px 1fr; gap: 16px; }
+.split > * { min-width: 0; }   /* a wide child (a note grid) scrolls inside its form instead of widening the page */
 .list { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); max-height: calc(100vh - 150px); overflow: auto; }
 .list .item { padding: 7px 10px; cursor: pointer; display: flex; justify-content: space-between; border-bottom: 1px solid #ffffff08; gap: 6px; }
 .list .item:hover { background: var(--panel2); }
@@ -1646,12 +1647,14 @@ function soundRecordingForm(s, id, au, f) {
   const names = libNames();
   const cur = libName(s.file);
   const opts = names.map(n => [libPath(n), n]);
-  form.append(row("recording", [selectField(s, "file", f, opts, { optional: true, emptyLabel: "(choose a recording)", after: () => { delete s.src; renderMain(); } }), names.length ? null : h("span", { class: "dim" }, "none uploaded: use the Recordings section")], s.file && !LIB.files[cur] ? "⚠ This file is not in the pack's recordings (the game will look for it in packs/<pack>/audio/)." : "Whole file, or crop it below."));
-  form.append(row("loudness", sliderField(s, "gain", f, { min: 0, max: 2, step: 0.05, def: 1 }), "1 = as recorded."));
-  if (s.file && LIB.files[cur] && !s.src) form.append(h("div", { class: "ctl", style: "margin:6px 0" }, h("button", { class: "btn", onclick: async () => { const buf = await libBuffer(cur); s.src = { file: s.file, start: 0, end: Math.round(buf.duration * 1000) / 1000, fade_in: 0, fade_out: 0, gain: 1 }; touch(f); renderMain(); } }, "✂ Crop it…")));
+  const rec = h("details", { class: "card", open: true }, h("summary", {}, "Recording"));
+  form.append(rec);
+  rec.append(row("recording", [selectField(s, "file", f, opts, { optional: true, emptyLabel: "(choose a recording)", after: () => { delete s.src; renderMain(); } }), names.length ? null : h("span", { class: "dim" }, "none uploaded: use the Recordings section")], s.file && !LIB.files[cur] ? "⚠ This file is not in the pack's recordings (the game will look for it in packs/<pack>/audio/)." : "Whole file, or crop it below."));
+  rec.append(row("loudness", sliderField(s, "gain", f, { min: 0, max: 2, step: 0.05, def: 1 }), "1 = as recorded."));
+  if (s.file && LIB.files[cur] && !s.src) rec.append(h("div", { class: "ctl", style: "margin:6px 0" }, h("button", { class: "btn", onclick: async () => { const buf = await libBuffer(cur); s.src = { file: s.file, start: 0, end: Math.round(buf.duration * 1000) / 1000, fade_in: 0, fade_out: 0, gain: 1 }; touch(f); renderMain(); } }, "✂ Crop it…")));
   if (s.src) {
     const src = s.src, sn = libName(src.file);
-    const box = h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Crop"));
+    const box = h("details", { class: "card", open: true }, h("summary", {}, "Crop"));
     form.append(box);
     if (!LIB.files[sn]) { box.append(h("p", { class: "dim" }, `The recording it was cut from (${src.file}) is gone.`), h("button", { class: "btn small", onclick: () => { delete s.src; touch(f); renderMain(); } }, "forget the crop")); return form; }
     box.append(h("p", { class: "dim" }, "Drag on the wave to pick the part to keep. “Apply” saves the cut as this sound's small WAV file."));
@@ -1681,9 +1684,9 @@ function trackRecordingForm(tr, f) {
   const form = h("div", {});
   if (libWait()) { form.append(h("p", { class: "dim" }, "Loading the recordings…")); return form; }
   const names = libNames(), opts = names.map(n => [libPath(n), n]), cur = libName(tr.file);
-  form.append(row("recording", selectField(tr, "file", f, opts, { after: renderMain }), tr.file && !LIB.files[cur] ? "⚠ This file is not in the pack's recordings." : names.length ? "Pick the uploaded recording this tune plays." : "Upload one in the Recordings section first."),
+  form.append(h("details", { class: "card", open: true }, h("summary", {}, "Recording"), row("recording", selectField(tr, "file", f, opts, { after: renderMain }), tr.file && !LIB.files[cur] ? "⚠ This file is not in the pack's recordings." : names.length ? "Pick the uploaded recording this tune plays." : "Upload one in the Recordings section first."),
     row("loops", [boolBox(tr.loop !== false, v => { tr.loop = v; touch(f); })], "Off = plays once (a victory jingle)."),
-    row("loudness", sliderField(tr, "gain", f, { min: 0, max: 2, step: 0.05, def: 1 })));
+    row("loudness", sliderField(tr, "gain", f, { min: 0, max: 2, step: 0.05, def: 1 }))));
   if (!LIB.files[cur]) return form;
   const box = h("div", {}, h("p", { class: "dim" }, "Drag the pink line to set where the tune starts playing (skips a silent lead-in) and the blue line to set where it jumps back to when it loops (an intro plays once, then the rest repeats)."));
   form.append(box);
@@ -2012,25 +2015,28 @@ function audioSounds(au, f) {
     if (kind === "file") {
       form.append(soundRecordingForm(s, sel, au, f));
     } else {
-      form.append(canvas);
+      const card = t => h("details", { class: "card", open: true }, h("summary", {}, t));
+      const cSound = card("Sound"), cPitch = card("Pitch"), cLen = card("Length and loudness"), cTone = card("Tone");
       const presetSel = h("select", {}, h("option", { value: "" }, "start from a preset…"), Object.keys(SOUND_PRESETS).map(n => h("option", { value: n }, n)));
       presetSel.addEventListener("change", () => { if (!presetSel.value) return; for (const k of Object.keys(s)) if (k !== "kind") delete s[k]; Object.assign(s, clone(SOUND_PRESETS[presetSel.value]), { kind: "synth" }); touch(f); previewSound(s); renderMain(); });
-      form.append(h("div", { class: "ctl", style: "margin:8px 0" }, presetSel,
+      cSound.append(canvas, h("div", { class: "ctl", style: "margin:8px 0" }, presetSel,
         h("button", { class: "btn", title: "A small random change to every number", onclick: () => { mutateSound(s); touch(f); previewSound(s); renderMain(); } }, "🎲 Mutate"),
         h("button", { class: "btn", title: "A new seed: the hiss in the sound changes", onclick: () => { s.seed = Math.floor(Math.random() * 100000); touch(f); previewSound(s); renderMain(); } }, "New hiss seed")));
-      form.append(row("wave", selectField(s, "wave", f, SYNTH_WAVES_UI, { after: () => { redraw(); } }), "square = chiptune, saw = buzzy, sine = pure, triangle = soft, noise = hiss and explosions."));
+      cSound.append(row("wave", selectField(s, "wave", f, SYNTH_WAVES_UI, { after: () => { redraw(); } }), "square = chiptune, saw = buzzy, sine = pure, triangle = soft, noise = hiss and explosions."));
       const slide = s.freq_end !== undefined;
-      form.append(row("pitch slide", [h("label", {}, boolBox(slide, v => { if (v) s.freq_end = s.freq === undefined ? 440 : s.freq; else delete s.freq_end; touch(f); renderMain(); }), " slide to another pitch")], null));
+      cSound.append(row("pitch slide", [h("label", {}, boolBox(slide, v => { if (v) s.freq_end = s.freq === undefined ? 440 : s.freq; else delete s.freq_end; touch(f); renderMain(); }), " slide to another pitch")], null));
+      const where = { freq: cPitch, slide_curve: cPitch, duration: cLen, volume: cLen, attack: cLen, release: cLen, decay: cLen };   // everything else is the tone
       for (const [key, label, min, max, step, def, hint] of SYNTH_NUM) {
-        if (key === "freq") { form.append(row(label, sliderField(s, key, f, { min, max, step, def, live: redraw }), hint, s[key] !== undefined)); if (slide) form.append(row("slide to (Hz)", sliderField(s, "freq_end", f, { min, max, step, def: s.freq || 440, live: redraw }), "The note it ends on.", true)); continue; }
+        if (key === "freq") { cPitch.append(row(label, sliderField(s, key, f, { min, max, step, def, live: redraw }), hint, s[key] !== undefined)); if (slide) cPitch.append(row("slide to (Hz)", sliderField(s, "freq_end", f, { min, max, step, def: s.freq || 440, live: redraw }), "The note it ends on.", true)); continue; }
         if (key === "slide_curve" && !slide) continue;
         if (key === "duty" && (s.wave || "square") !== "square") continue;
-        form.append(row(label, sliderField(s, key, f, { min, max, step, def, live: redraw }), hint, s[key] !== undefined));
+        (where[key] || cTone).append(row(label, sliderField(s, key, f, { min, max, step, def, live: redraw }), hint, s[key] !== undefined));
       }
       const arpIn = h("input", { type: "text", placeholder: "0, 4, 7, 12", style: "width:220px", value: (s.arp || []).join(", ") });
       arpIn.addEventListener("change", () => { const v = arpIn.value.split(",").map(x => x.trim()).filter(x => x !== "").map(Number); if (v.some(Number.isNaN)) { arpIn.classList.add("bad"); return; } arpIn.classList.remove("bad"); if (v.length) s.arp = v; else delete s.arp; touch(f); redraw(); });
-      form.append(row("arpeggio", [arpIn, h("span", { class: "unit" }, "semitones stepped through: 0, 4, 7, 12 plays a major chord")], "Leave empty for a single pitch.", s.arp !== undefined));
-      if (s.arp && s.arp.length) form.append(row("arpeggio speed", sliderField(s, "arp_rate", f, { min: 1, max: 40, step: 0.5, def: 12, live: redraw }), "Steps a second."));
+      cPitch.append(row("arpeggio", [arpIn, h("span", { class: "unit" }, "semitones stepped through: 0, 4, 7, 12 plays a major chord")], "Leave empty for a single pitch.", s.arp !== undefined));
+      if (s.arp && s.arp.length) cPitch.append(row("arpeggio speed", sliderField(s, "arp_rate", f, { min: 1, max: 40, step: 0.5, def: 12, live: redraw }), "Steps a second."));
+      form.append(cSound, cPitch, cLen, cTone);
       redraw();
     }
   } else form.append(h("p", { class: "lead" }, "No sounds yet."));
@@ -2121,7 +2127,7 @@ function audioMusic(au, f) {
   const wrap = h("div", {});
   const mctx = C.audio_events.music;
   // which track plays when
-  const ctxRows = h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Which tune plays when"));
+  const ctxRows = h("details", { class: "card", open: true }, h("summary", {}, "Which tune plays when"));
   for (const [ctx, desc] of Object.entries(mctx)) {
     const sel = h("select", {}, h("option", { value: "" }, "(silence)"), trackIds.map(i => h("option", { value: i }, i)));
     sel.value = mu.contexts[ctx] || "";
@@ -2153,11 +2159,11 @@ function audioMusic(au, f) {
     if (tr.file !== undefined) {
       form.append(trackRecordingForm(tr, f));
     } else {
-      form.append(row("tempo (bpm)", numField(tr, "bpm", f, { integer: true, min: 30, max: 300, after: upd })),
+      form.append(h("details", { class: "card", open: true }, h("summary", {}, "The tune"), row("tempo (bpm)", numField(tr, "bpm", f, { integer: true, min: 30, max: 300, after: upd })),
         row("length (steps)", numField(tr, "steps", f, { integer: true, min: 1, max: 512, after: upd }), "The loop. With 4 steps a beat, 16 steps = one bar and 64 = four bars. A channel's pattern repeats if it is shorter."),
         row("steps a beat", numField(tr, "steps_per_beat", f, { integer: true, min: 1, max: 8, def: 4, optional: true, after: upd })),
         row("loudness", numField(tr, "volume", f, { min: 0, max: 2, step: 0.05, def: 1, optional: true })),
-        row("loops", [boolBox(tr.loop !== false, v => { tr.loop = v; touch(f); })], "Off = plays once (the victory and defeat jingles)."));
+        row("loops", [boolBox(tr.loop !== false, v => { tr.loop = v; touch(f); })], "Off = plays once (the victory and defeat jingles).")));
       tr.channels = tr.channels || [];
       tr.channels.forEach((ch, ci) => form.append(channelCard(tr, ch, ci, f)));
       form.append(h("div", { class: "ctl" }, h("span", { class: "dim" }, "Add a channel:"), Object.keys(NEW_CHANNEL).map(k => h("button", { class: "btn small", onclick: () => { tr.channels.push(NEW_CHANNEL[k]()); touch(f); renderMain(); } }, "+ " + k))));
@@ -2183,11 +2189,11 @@ function channelCard(tr, ch, ci, f) {
   pat.addEventListener("input", check);
   pat.addEventListener("change", () => { if (check()) { ch.pattern = pat.value.trim().replace(/[ \t]*\n[ \t]*/g, "\n"); touch(f); grid.reload(); } });
   const grid = noteGrid(tr, ch, f, () => { pat.value = ch.pattern || ""; check(); });
-  const gridBox = h("div", {}, grid.el), textBox = h("div", {}, pat, info);
+  const gridBox = h("div", { style: "overflow-x:auto" }, grid.el), textBox = h("div", {}, pat, info);
   const modeBtns = {};
   const showMode = m => { S.sel.audioChMode = m; gridBox.style.display = m === "grid" ? "" : "none"; textBox.style.display = m === "text" ? "" : "none"; for (const k of Object.keys(modeBtns)) modeBtns[k].classList.toggle("primary", k === m); if (m !== "grid") grid.stop(); else grid.reload(); };
   for (const [k, label] of [["grid", "Note grid"], ["text", "Text"]]) modeBtns[k] = h("button", { class: "btn small", onclick: () => showMode(k) }, label);
-  const nums = h("details", {}, h("summary", { class: "dim" }, "sound settings"));
+  const nums = h("details", { class: "card" }, h("summary", {}, "Sound settings"));
   for (const [key, label, min, max, step, def] of CH_NUM) {
     if (drums && !["volume"].includes(key)) continue;
     if (key === "duty" && ch.wave !== "square") continue;
@@ -2209,8 +2215,8 @@ function channelCard(tr, ch, ci, f) {
 function audioVolume(au, f) {
   au.volumes = au.volumes || {};
   const wrap = h("div", {}, h("p", { class: "lead" }, "The volumes a new player starts with. In the game, the Options screen lets each player turn Master, Music and Sound effects up or down (that choice is remembered on their save)."));
-  for (const [k, label] of [["master", "master"], ["music", "music"], ["sfx", "sound effects"]]) wrap.append(row(label, sliderField(au.volumes, k, f, { min: 0, max: 1, step: 0.05, def: { master: 0.8, music: 0.6, sfx: 0.8 }[k] }), null, au.volumes[k] !== undefined));
-  wrap.append(h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Listen to a sound at its event settings"), h("p", { class: "hint dim" }, "Use the Events tab: each row has a ▶ that plays the event the way the game does (loudness and a random pitch change).")));
+  wrap.append(h("details", { class: "card", open: true }, h("summary", {}, "Starting volumes"), [["master", "master"], ["music", "music"], ["sfx", "sound effects"]].map(([k, label]) => row(label, sliderField(au.volumes, k, f, { min: 0, max: 1, step: 0.05, def: { master: 0.8, music: 0.6, sfx: 0.8 }[k] }), null, au.volumes[k] !== undefined))));
+  wrap.append(h("details", { class: "card", open: true }, h("summary", {}, "Listen to a sound at its event settings"), h("p", { class: "hint dim" }, "Use the Events tab: each row has a ▶ that plays the event the way the game does (loudness and a random pitch change).")));
   return wrap;
 }
 
@@ -3835,7 +3841,7 @@ function saveSections() { try { localStorage.setItem(SECTION_KEY, JSON.stringify
 function sectionKey(card) {
   const s = card.querySelector(":scope > summary");
   const title = s && s.firstChild ? s.firstChild.textContent.replace(/\s*[(·].*$/, "").replace(/\d+/g, "#").trim() : "";
-  return (S.tab || "") + (S.tab === "content" ? ":" + (S.sel.file || "") : "") + "|" + title;
+  return (S.tab || "") + (S.tab === "content" ? ":" + (S.sel.file || "") : S.tab === "audio" ? ":" + (S.sel.audioSec || "sounds") : "") + "|" + title;
 }
 /* does this row need the full width of the card? */
 function rowIsWide(r) {
