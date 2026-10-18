@@ -80,6 +80,25 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--wl, 3
 .f label { font: 11px var(--f-mono); color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
 .f input[type=number], .f input[type=text], .f select { width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 4px 6px; }
 .f .xy { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+/* the inspector: collapsible sections, each a two-column grid (short controls side by side; names, button rows and hints span both columns) */
+#inspector { container-type: inline-size; }
+.isec { border: 1px solid var(--line); border-radius: 5px; background: rgba(255, 255, 255, 0.012); }
+.isec > summary { list-style: none; cursor: pointer; padding: 5px 10px; font: 600 11px var(--f-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); display: flex; align-items: center; gap: 6px; user-select: none; }
+.isec > summary::-webkit-details-marker { display: none; }
+.isec > summary::before { content: "\25B8"; color: var(--cyan); font-size: 10px; transition: transform 0.12s; }
+.isec[open] > summary::before { transform: rotate(90deg); }
+.isec[open] > summary { border-bottom: 1px solid var(--line); }
+.ig { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 10px; padding: 9px 10px 10px; align-items: end; }
+.ig > .f { grid-template-columns: minmax(0, 1fr); gap: 3px; align-items: stretch; }
+.ig > .f > label { font-size: 10px; }
+.ig > .f.w2, .ig > .btns, .ig > .hint, .ig > .w2, .ig > p { grid-column: 1 / -1; }
+.ig .btns button { padding: 4px 8px; font-size: 12px; }
+.ig .ig2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 10px; align-items: center; }
+.ig .chk { display: flex; gap: 5px; align-items: center; font-size: 12px; color: var(--dim); }
+.ig .btns.q { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }   /* four or six buttons: a tidy 2-wide grid */
+.ig .pair { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; align-items: center; }   /* a number box and its button */
+.ig-danger { display: flex; gap: 6px; padding-top: 2px; }
+@container (max-width: 230px) { .ig, .ig .ig2 { grid-template-columns: minmax(0, 1fr); } }
 .btns { display: flex; flex-wrap: wrap; gap: 6px; }
 .hint { color: var(--dim); font-size: 12px; margin: 0; }
 #editWrap { position: relative; background: #0d0e19; flex: 1; min-height: 360px; }
@@ -1199,8 +1218,17 @@ function renderTree() {
   rec(doc.views[view], 0, "", "r");
   { const any = [...ui.hiddenParts].some(k => k.startsWith(view + ":")); $("showAll").hidden = !any; }
 }
+/* A section of the inspector: a collapsible card with a two-column grid in it. Which sections are open is remembered (by title) across the rebuilds. */
+const insOpen = {};
+function insSection(ins, title, closed) {
+  const d = document.createElement("details"); d.className = "isec"; d.open = insOpen[title] === undefined ? !closed : insOpen[title];
+  const s = document.createElement("summary"); s.textContent = title; d.appendChild(s);
+  const g = document.createElement("div"); g.className = "ig"; d.appendChild(g);
+  d.addEventListener("toggle", () => { insOpen[title] = d.open; });
+  ins.appendChild(d); return g;
+}
 let colourClip = null;   // the colour last copied with the inspector's Copy button
-function field(label, inner) { const d = document.createElement("div"); d.className = "f"; const l = document.createElement("label"); l.textContent = label; d.appendChild(l); d.appendChild(inner); return d; }
+function field(label, inner, wide) { const d = document.createElement("div"); d.className = "f" + (wide ? " w2" : ""); const l = document.createElement("label"); l.textContent = label; d.appendChild(l); d.appendChild(inner); return d; }
 function numInput(value, onChange, step = 0.1) { const i = document.createElement("input"); i.type = "number"; i.step = step; i.value = round2(value); i.addEventListener("input", () => { const v = parseFloat(i.value); if (!isNaN(v)) onChange(v); }); return i; }
 function xy(a, b, ax, bx) { const w = document.createElement("div"); w.className = "xy"; w.appendChild(a); w.appendChild(b); return w; }
 function btn(label, fn, cls = "", disabled = false) { const b = document.createElement("button"); b.type = "button"; b.textContent = label; if (cls) b.className = cls; b.disabled = disabled; b.addEventListener("click", fn); return b; }
@@ -1220,57 +1248,126 @@ function renderInspectorBody() {
   if (isImg(o)) { imageInspector(ins, o); return; }
   if (isPoly(o)) {
     const p = o.poly, parent = selectedParent();
-    const name = document.createElement("input"); name.type = "text"; name.value = p.name || ""; name.placeholder = "name (optional)"; name.title = "Names start with their top-level part (armL ...): it is added for you when you finish typing"; name.addEventListener("change", () => { const t = prefixOf(view, o); if (t && name.value.trim()) name.value = rebaseName(name.value, t, "polygon"); change(() => { p.name = name.value; }, "name"); }); ins.appendChild(field("Name", name));
+    const xs = crossings(p.pts);
+    if (xs.length) { const wn = document.createElement("p"); wn.className = "hint"; wn.style.color = "var(--bad)"; wn.textContent = `⚠ This polygon's edges cross themselves in ${xs.length} place${xs.length > 1 ? "s" : ""} (red rings on the canvas). Godot can't draw it, so it will vanish in the game. Drag the points so the outline never crosses itself, or split it into two polygons.`; ins.appendChild(wn); }
+    // Part: what it is called, which part it belongs to, and where it sits in the draw order
+    let g = insSection(ins, "Part");
+    g.appendChild(field("Name", nameField(o), true));
+    g.appendChild(field("Part", partPicker(o, parent), true));
+    layerControls(g, o);
+    // Look: colour, role and outline
+    g = insSection(ins, "Look");
     const col = document.createElement("input"); col.type = "color"; col.value = "#" + p.color; col.disabled = !!p.accent; col.addEventListener("input", () => change(() => { p.color = col.value.slice(1); }, "color")); const cw = document.createElement("div"); cw.className = "minibtns"; cw.appendChild(col);
     const mk = (t, tip, fn) => { const b = document.createElement("button"); b.type = "button"; b.textContent = t; b.title = tip; b.addEventListener("click", fn); cw.appendChild(b); return b; };
     mk("Pick", "Eyedropper: then click any polygon on the canvas to take its colour", () => { ui.pickColour = !ui.pickColour; edit.classList.toggle("picking", ui.pickColour); });
     mk("Copy", "Remember this polygon's colour", () => { colourClip = p.color; renderInspector(); });
     const pb = mk("Paste", colourClip ? "Apply the copied colour (#" + colourClip + ") to this polygon" : "Copy a colour first", () => { if (colourClip) change(() => { p.color = colourClip; }, "color"); });
     pb.disabled = !colourClip || !!p.accent; if (colourClip) { pb.style.borderLeft = "8px solid #" + colourClip; }
-    ins.appendChild(field("Colour", cw));
+    g.appendChild(field("Colour", cw, true));
     const role = document.createElement("select"); [["0", "none"], ["1", "accent (hero colour)"], ["2", "accent 2 (shoulder patch)"]].forEach(([v, t]) => { const op = document.createElement("option"); op.value = v; op.textContent = t; if (+v === (p.accent || 0)) op.selected = true; role.appendChild(op); });
-    role.addEventListener("change", () => change(() => { p.accent = +role.value; })); ins.appendChild(field("Role", role));
-    const ol = document.createElement("input"); ol.type = "checkbox"; ol.checked = !!p.outline; ol.addEventListener("change", () => change(() => { p.outline = ol.checked; delete p.outline_was; })); ins.appendChild(field("Outline", ol));   // a deliberate edit wins over the remembered setting
-    ins.appendChild(field("Thickness", numInput(outW(p), v => change(() => { p.ow = Math.max(0, v); }, "ow"), 0.1)));
-    const opc = document.createElement("input"); opc.type = "color"; opc.value = "#" + outC(p); opc.addEventListener("input", () => change(() => { p.oc = opc.value.slice(1); }, "oc")); ins.appendChild(field("Line colour", opc));
-    if (parent.ow > 0) { const hh = document.createElement("p"); hh.className = "hint"; hh.textContent = `This part has a whole-section outline (${outW(parent)}); turn Outline off here so the polygon does not also draw its own.`; ins.appendChild(hh); }
-    const xs = crossings(p.pts);
-    if (xs.length) { const wn = document.createElement("p"); wn.className = "hint"; wn.style.color = "var(--bad)"; wn.textContent = `⚠ This polygon's edges cross themselves in ${xs.length} place${xs.length > 1 ? "s" : ""} (red rings on the canvas). Godot can't draw it, so it will vanish in the game. Drag the points so the outline never crosses itself, or split it into two polygons.`; ins.appendChild(wn); }
-    layerControls(ins, o);
-    ins.appendChild(clipboardControls(o, parent));
-    const b2 = document.createElement("div"); b2.className = "btns";
-    b2.append(btn("Flip ↔", () => flip(true)), btn("Flip ↕", () => flip(false)), btn("Grow 10%", () => grow(1.1)), btn("Shrink 10%", () => grow(1 / 1.1)));
-    ins.appendChild(b2);
-    const rb = document.createElement("div"); rb.className = "btns";
-    rb.append(btn("↺ 90°", () => rotatePoly(-90)), btn("↺ 15°", () => rotatePoly(-15)), btn("↻ 15°", () => rotatePoly(15)), btn("↻ 90°", () => rotatePoly(90)));
-    ins.appendChild(field("Rotate polygon", rb));
-    const ang = document.createElement("input"); ang.type = "number"; ang.value = 45; ang.step = 5; ang.style.width = "64px";
-    const goRot = document.createElement("div"); goRot.className = "btns"; goRot.append(ang, btn("Rotate", () => rotatePoly(+ang.value || 0)));
-    ins.appendChild(field("Rotate by °", goRot));
-    const b3 = document.createElement("div"); b3.className = "btns"; b3.append(btn("Delete polygon", deleteSelected, "danger")); ins.appendChild(b3);
-    const h = document.createElement("p"); h.className = "hint"; h.textContent = `${p.pts.length} points. Drag a cyan point to move it; click an orange square to add a point; Alt-click a point to remove it.`; ins.appendChild(h);
+    role.addEventListener("change", () => change(() => { p.accent = +role.value; })); g.appendChild(field("Role", role));
+    lineControls(g, { label: "Outline", on: !!p.outline, setOn: v => change(() => { p.outline = v; delete p.outline_was; }),   // a deliberate edit wins over the remembered setting
+      thickness: outW(p), setThickness: v => change(() => { p.ow = Math.max(0, v); }, "ow"), colour: outC(p), setColour: v => change(() => { p.oc = v; }, "oc") });
+    if (parent.ow > 0) { const hh = document.createElement("p"); hh.className = "hint"; hh.textContent = `This part has a whole-section outline (${outW(parent)}); turn Outline off here so the polygon does not also draw its own.`; g.appendChild(hh); }
+    g = insSection(ins, "Transform"); transformControls(g, o);
+    g = insSection(ins, "Clipboard"); g.appendChild(clipboardControls(o, parent));
+    deleteBar(ins, "Delete polygon");
+    const h = document.createElement("p"); h.className = "hint"; h.textContent = `${p.pts.length} points. Drag a cyan point to move it; click an orange square to add a point; Alt-click a point to remove it.`;
+    ins.appendChild(h);
   } else {
     const rn = rigNameOf(view, o), isRoot = o === doc.views[view];
-    const name = document.createElement("input"); name.type = "text"; name.value = o.name || ""; name.title = "Names start with their top-level part (armL ...): it is added for you when you finish typing"; name.addEventListener("change", () => { const t = topOf(view, o); if (t && t !== o && name.value.trim()) name.value = rebaseName(name.value, t.name, "pivot"); change(() => { o.name = name.value; }, "name"); }); ins.appendChild(field("Name", name));
-    if (rn) { const p = document.createElement("p"); p.className = "hint"; p.textContent = `Rig part "${rn}": the animation moves this pivot (rest position below) so it can't be deleted.`; ins.appendChild(p); }
+    let g = insSection(ins, "Part");
+    g.appendChild(field("Name", nameField(o), true));
+    if (rn) { const p = document.createElement("p"); p.className = "hint"; p.textContent = `Rig part "${rn}": the animation moves this pivot (rest position below) so it can't be deleted or moved into another part.`; g.appendChild(p); }
+    if (!isRoot) g.appendChild(field("Part", partPicker(o, selectedParent()), true));
+    if (!isRoot) layerControls(g, o);
+    // Rest pose: where the pivot sits, how it is turned and scaled when nothing is moving it
+    g = insSection(ins, "Rest pose");
     if (!isRoot) {
-      ins.appendChild(field("Position", xy(numInput(o.pos[0], v => change(() => { movePivot(o, v, o.pos[1], ui.pivotOnly); }, "px")), numInput(o.pos[1], v => change(() => { movePivot(o, o.pos[0], v, ui.pivotOnly); }, "py")))));
-      const pk = document.createElement("p"); pk.className = "hint"; pk.textContent = ui.pivotOnly ? "Pivot only is ON: moving this pivot leaves its polygons and sub-parts where they are (Shift while dragging = move everything)." : "Moving this pivot moves everything inside it. Turn on Pivot only (toolbar) to move just the pivot, or hold Shift while dragging its handle."; ins.appendChild(pk);
+      g.appendChild(field("Position", xy(numInput(o.pos[0], v => change(() => { movePivot(o, v, o.pos[1], ui.pivotOnly); }, "px")), numInput(o.pos[1], v => change(() => { movePivot(o, o.pos[0], v, ui.pivotOnly); }, "py"))), true));
+      const pk = document.createElement("p"); pk.className = "hint"; pk.textContent = ui.pivotOnly ? "Pivot only is ON: moving this pivot leaves its polygons and sub-parts where they are (Shift while dragging = move everything)." : "Moving this pivot moves everything inside it. Turn on Pivot only (toolbar) to move just the pivot, or hold Shift while dragging its handle."; g.appendChild(pk);
     }
-    ins.appendChild(field("Rotation °", numInput(o.rot * 180 / Math.PI, v => change(() => { o.rot = v * Math.PI / 180; }, "rot"), 1)));
-    ins.appendChild(field("Scale", xy(numInput(o.scale[0], v => change(() => { o.scale = [v, o.scale[1]]; }, "sx"), 0.05), numInput(o.scale[1], v => change(() => { o.scale = [o.scale[0], v]; }, "sy"), 0.05))));
-    const tint = document.createElement("input"); tint.type = "color"; tint.value = "#" + (o.tint || "ffffff"); tint.addEventListener("input", () => change(() => { o.tint = tint.value.slice(1); }, "tint")); ins.appendChild(field("Tint", tint));
-    if (!isRoot) layerControls(ins, o);
-    if (!isRoot && !rn) ins.appendChild(motionControls(o));
-    ins.appendChild(sectionOutlineControls(o));
-    const b = document.createElement("div"); b.className = "btns";
+    g.appendChild(field("Scale", xy(numInput(o.scale[0], v => change(() => { o.scale = [v, o.scale[1]]; }, "sx"), 0.05), numInput(o.scale[1], v => change(() => { o.scale = [o.scale[0], v]; }, "sy"), 0.05)), true));
+    g.appendChild(field("Rotation °", numInput(o.rot * 180 / Math.PI, v => change(() => { o.rot = v * Math.PI / 180; }, "rot"), 1)));
+    const tint = document.createElement("input"); tint.type = "color"; tint.value = "#" + (o.tint || "ffffff"); tint.addEventListener("input", () => change(() => { o.tint = tint.value.slice(1); }, "tint")); g.appendChild(field("Tint", tint));
+    const h = document.createElement("p"); h.className = "hint"; h.textContent = "Rotation and scale here are the REST values; running and aiming move the rig parts on top of them."; g.appendChild(h);
+    if (!isRoot && !rn) { g = insSection(ins, "Motion", !o.mv); motionControls(g, o); }
+    g = insSection(ins, "Section line"); sectionOutlineControls(g, o);
+    g = insSection(ins, "Add inside");
+    const b = document.createElement("div"); b.className = "btns q";
     b.append(btn("Add rectangle", () => addPoly(o, "rect")), btn("Add oval", () => addPoly(o, "oval")), btn("Add triangle", () => addPoly(o, "tri")), btn("Add hexagon", () => addPoly(o, "hex")), btn("Add picture…", () => pickImageFor(o)), btn("Add pivot", () => addNode(o)));
-    ins.appendChild(b);
-    ins.appendChild(clipboardControls(o, isRoot ? null : selectedParent()));
-    ins.appendChild(transformControls(o));
-    if (!isRoot) { const b2 = document.createElement("div"); b2.className = "btns"; b2.append(btn("Delete part", deleteSelected, "danger", !!rn || containsRig(o))); ins.appendChild(b2); }
-    const h = document.createElement("p"); h.className = "hint"; h.textContent = "Rotation and scale here are the REST values; running and aiming move the rig parts on top of them."; ins.appendChild(h);
+    g.appendChild(b);
+    g = insSection(ins, "Clipboard"); g.appendChild(clipboardControls(o, isRoot ? null : selectedParent()));
+    g = insSection(ins, "Transform contents", true); transformControls(g, o);
+    if (!isRoot) deleteBar(ins, "Delete part", !!rn || containsRig(o));
   }
+}
+/* the Shape section of a polygon or a picture: flip, grow / shrink and turn it about its own centre, by a step or by a number */
+/* The Transform block, the same for a polygon or picture (it turns, flips and grows about its own centre) and for a pivot (everything INSIDE it, baked into the drawing: its polygons, sub-pivots and their
+   contents; about the pivot's own origin, or the middle of its contents when that box is ticked). Flip, grow / shrink, turn by a step, and turn / scale by a number. */
+function transformControls(g, o) {
+  const poly = isPoly(o);
+  let cb = null;
+  const run = (kind, v) => { if (!o.kids.length) { setStatus("Nothing inside this pivot yet", "warn"); return; } change(() => { xformKids(o.kids, kind, v, cb && cb.checked ? contentCentre(o) : [0, 0]); }); };
+  const act = poly ? { flip: h => flip(h), scale: f => grow(f), rotate: deg => rotatePoly(deg) }
+    : { flip: h => run("flip", h ? "x" : "y"), scale: f => run("scale", f), rotate: deg => run("rotate", deg * Math.PI / 180) };
+  const b2 = document.createElement("div"); b2.className = "btns q";
+  b2.append(btn("Flip ↔", () => act.flip(true)), btn("Flip ↕", () => act.flip(false)), btn("Grow 10%", () => act.scale(1.1)), btn("Shrink 10%", () => act.scale(1 / 1.1)));
+  g.appendChild(b2);
+  const rb = document.createElement("div"); rb.className = "btns";
+  rb.append(btn("↺ 90°", () => act.rotate(-90)), btn("↺ 15°", () => act.rotate(-15)), btn("↻ 15°", () => act.rotate(15)), btn("↻ 90°", () => act.rotate(90)));
+  g.appendChild(field("Rotate", rb, true));
+  const ang = document.createElement("input"); ang.type = "number"; ang.value = 45; ang.step = 5;
+  const goRot = document.createElement("div"); goRot.className = "pair"; goRot.append(ang, btn("Rotate", () => act.rotate(parseFloat(ang.value) || 0)));
+  g.appendChild(field("Rotate by °", goRot));
+  const k = document.createElement("input"); k.type = "number"; k.value = 1.25; k.step = 0.05; k.min = 0.05;
+  const goScale = document.createElement("div"); goScale.className = "pair"; goScale.append(k, btn("Scale", () => { const f = parseFloat(k.value); if (f > 0) act.scale(f); }));
+  g.appendChild(field("Scale by ×", goScale));
+  if (!poly) {
+    cb = document.createElement("input"); cb.type = "checkbox"; const cl = document.createElement("label"); cl.className = "chk w2"; cl.title = "Off: turn / flip / scale around this pivot's own origin (the pink cross). On: around the middle of everything inside it."; cl.append(cb, "about the middle of the contents");
+    g.appendChild(cl);
+    const h = document.createElement("p"); h.className = "hint"; h.textContent = "Changes everything INSIDE this pivot, baked into the drawing. The pivot's own position, rotation and scale (Rest pose) are not touched. Undo with Ctrl+Z."; g.appendChild(h);
+  }
+}
+/* The Part dropdown: which part (pivot) a polygon belongs to. Picking another moves it there without it moving on screen (its points are re-expressed in the new part's space from the rest
+   transforms of both), on top of that part. Its name follows the naming convention of the new top-level part. Copy / Cut / Paste (Clipboard) still move things between views and puppets. */
+function partPicker(o, parent) {
+  const poly = isPoly(o), root = doc.views[ui.view], sel = document.createElement("select");
+  sel.setAttribute("data-nopolish", "");   // part names are names, shown exactly as they are
+  const mine = new Set(); if (!poly) walk(o, n => { if (!isPoly(n)) mine.add(n); });   // a pivot cannot go into itself or into what is inside it
+  const rig = !poly && (!!rigNameOf(ui.view, o) || containsRig(o));   // a rig part (or one holding rig parts) stays where the animation expects it
+  (function rec(n, depth) {
+    if (isPoly(n) || mine.has(n)) return;
+    const op = document.createElement("option"); op.value = n.id; const rn = rigNameOf(ui.view, n);
+    op.textContent = "  ".repeat(depth) + (n.name || "node") + (rn && rn !== n.name ? ` (${rn})` : ""); if (n === parent) op.selected = true; sel.appendChild(op);
+    n.kids.forEach(k => rec(k, depth + 1));
+  })(root, 0);
+  sel.disabled = rig;
+  sel.title = rig ? "A rig part keeps its place: the game's animation moves it where it is." : "Which part this " + (poly ? "polygon" : "pivot") + " belongs to. Pick another to move it there: it keeps its place on screen and goes on top of that part.";
+  sel.addEventListener("change", () => {
+    let dest = null; walk(root, n => { if (!isPoly(n) && String(n.id) === sel.value) dest = n; });
+    if (!dest || dest === parent) return;
+    const inv = mInv(restWorld(root, dest)); if (!inv) { setStatus("That part has a zero scale, so nothing can be moved into it", "warn"); renderInspector(); return; }
+    const srcTop = topOf(ui.view, o), destTop = topOf(ui.view, dest), renameTop = destTop && srcTop !== destTop;
+    if (poly) {
+      const m = mMul(inv, restWorld(root, parent));
+      change(() => {
+        o.poly.pts = o.poly.pts.map(q => [round2(m[0] * q[0] + m[2] * q[1] + m[4]), round2(m[1] * q[0] + m[3] * q[1] + m[5])]);
+        if (renameTop && o.poly.name && o.poly.name.trim()) renameItems([o], srcTop ? srcTop.name : "", destTop.name);
+        parent.kids.splice(parent.kids.indexOf(o), 1); dest.kids.push(o);
+      });
+    } else {
+      const m = mMul(mMul(inv, restWorld(root, parent)), mLocal(o)), sx = Math.hypot(m[0], m[1]) || 1, rot = Math.atan2(m[1], m[0]), sy = (m[0] * m[3] - m[1] * m[2]) / sx;
+      change(() => {
+        parent.kids.splice(parent.kids.indexOf(o), 1); o.pos = [round2(m[4]), round2(m[5])]; o.rot = round3(rot); o.scale = [round3(sx), round3(sy)];
+        if (renameTop) renameItems([o], srcTop ? srcTop.name : "", destTop.name);
+        dest.kids.push(o);
+      });
+    }
+    select({ obj: o });
+    setStatus("Moved into " + (dest.name || "the part"), "ok");
+  });
+  return sel;
 }
 /* Move a polygon into another part (pivot) without it moving on screen: its points are re-expressed in the new
    part's space using the rest transforms (position, rotation, scale) of both. It lands on top (front) of the new part. */
@@ -1281,12 +1378,10 @@ function restWorld(root, target) { const path = pathTo(root, target).reverse(); 
 /* Outline the WHOLE section: one outline around the silhouette of the part's own polygons, drawn behind all of them
    (so no lines between its polygons). Turning it on switches the polygons' own outlines off; turning it off puts them back. */
 /* A MOTION for a pivot you added (not a rig part: those are animated by the game's own code). Stored as node.mv and played by HeroPuppet._apply_movers, driven by the run cycle, the clock and the aim. */
-function motionControls(o) {
-  const box = document.createElement("div"); box.style.display = "grid"; box.style.gap = "7px";
-  const t = document.createElement("div"); t.className = "sub"; t.textContent = "Motion"; t.style.cssText = "font:600 11px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--gold)"; box.appendChild(t);
+function motionControls(g, o) {
   const DEF = { speed: 1, sway_rate: 1.8 }, D = 180 / Math.PI;
   const setMv = (key, v, def) => change(() => { o.mv = o.mv || {}; if (v === def || isNaN(v)) delete o.mv[key]; else o.mv[key] = Math.round(v * 10000) / 10000; if (!Object.keys(o.mv).length) delete o.mv; }, "mv");
-  const num = (label, key, tip, deg, def = 0, step = 1) => { const mv = o.mv || {}, raw = mv[key] === undefined ? def : mv[key]; const i = numInput(deg ? Math.round(raw * D * 10) / 10 : raw, v => setMv(key, deg ? v / D : v, def), step); i.title = tip; box.appendChild(field(label, i)); };
+  const num = (label, key, tip, deg, def = 0, step = 1) => { const mv = o.mv || {}, raw = mv[key] === undefined ? def : mv[key]; const i = numInput(deg ? Math.round(raw * D * 10) / 10 : raw, v => setMv(key, deg ? v / D : v, def), step); i.title = tip; g.appendChild(field(label, i)); };
   num("Run swing °", "swing", "Rotates back and forth with the run cycle (the way legs and arms swing). 0 = off. Negative swings the other way.", true);
   num("Run speed ×", "speed", "How fast it follows the run cycle: 1 = the same as the legs, 2 = twice as fast (like the coat tail's flap).", false, 1, 0.25);
   num("Phase °", "ph", "Start offset in the cycle, so two parts do not move in step (180 = opposite).", true);
@@ -1297,29 +1392,22 @@ function motionControls(o) {
   num("Sway rate", "sway_rate", "Speed of the idle sway, radians per second.", false, 1.8, 0.1);
   num("Aim turn °", "aim", "Turns toward the aim direction while aiming (like the torso lean).", true);
   const h = document.createElement("p"); h.className = "hint"; h.textContent = "Added on top of this pivot's rest pose; everything inside it moves too. Watch it in the Live preview (Run / Idle / Aim). Rotations flip automatically on the Right drawing. Pivots you add are the only ones with this; the rig parts keep the game's own animation.";
-  box.appendChild(h);
-  if (o.mv) { const b = document.createElement("div"); b.className = "btns"; b.appendChild(btn("Clear motion", () => change(() => { delete o.mv; }), "danger")); box.appendChild(b); }
-  return box;
+  g.appendChild(h);
+  if (o.mv) { const b = document.createElement("div"); b.className = "btns"; b.appendChild(btn("Clear motion", () => change(() => { delete o.mv; }), "danger")); g.appendChild(b); }
 }
-function sectionOutlineControls(o) {
-  const box = document.createElement("div"); box.style.display = "grid"; box.style.gap = "9px";
+function sectionOutlineControls(g, o) {
   const polys = o.kids.filter(isPoly), on = o.ow > 0;
-  const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = on; cb.disabled = !polys.length;
-  cb.addEventListener("change", () => change(() => { if (cb.checked) { o.ow = o.ow > 0 ? o.ow : OUT_W; o.oc = o.oc || OUT_C; polys.forEach(k => { if (!("outline_was" in k.poly)) k.poly.outline_was = !!k.poly.outline; k.poly.outline = false; }); } else { o.ow = 0; polys.forEach(k => { if ("outline_was" in k.poly) { k.poly.outline = k.poly.outline_was; delete k.poly.outline_was; } }); } }));   // the section line replaces each polygon's own outline while it is on; turning it off puts back what each one had
-  box.appendChild(field("Section line", cb));
-  if (on) {
-    box.appendChild(field("Thickness", numInput(o.ow, v => change(() => { o.ow = Math.max(0.05, v); }, "sow"), 0.1)));
-    const c = document.createElement("input"); c.type = "color"; c.value = "#" + (o.oc || OUT_C); c.addEventListener("input", () => change(() => { o.oc = c.value.slice(1); }, "soc")); box.appendChild(field("Line colour", c));
-  }
+  lineControls(g, { label: "Section line", on, disabled: !polys.length, hideWhenOff: true,
+    setOn: v => change(() => { if (v) { o.ow = o.ow > 0 ? o.ow : OUT_W; o.oc = o.oc || OUT_C; polys.forEach(k => { if (!("outline_was" in k.poly)) k.poly.outline_was = !!k.poly.outline; k.poly.outline = false; }); } else { o.ow = 0; polys.forEach(k => { if ("outline_was" in k.poly) { k.poly.outline = k.poly.outline_was; delete k.poly.outline_was; } }); } }),   // the section line replaces each polygon's own outline while it is on; turning it off puts back what each one had
+    thickness: o.ow, setThickness: v => change(() => { o.ow = Math.max(0.05, v); }, "sow"), colour: o.oc || OUT_C, setColour: v => change(() => { o.oc = v; }, "soc") });
   if (o === doc.views[ui.view]) {   // the drawing's top part: one thickness for every line in this drawing
     const wrap = document.createElement("div"); wrap.className = "xy"; const ni = numInput(OUT_W, () => {}, 0.1);
     wrap.append(ni, btn("Apply to all lines in this drawing", () => { const v = Math.max(0, parseFloat(ni.value)); if (isNaN(v)) return; change(() => { walk(o, n => { if (isPoly(n)) n.poly.ow = v; else if (n.ow > 0) n.ow = Math.max(0.05, v); }); }); }));
-    box.appendChild(field("All lines", wrap));
+    g.appendChild(field("All lines", wrap, true));
   }
   const h = document.createElement("p"); h.className = "hint";
   h.textContent = polys.length ? "Section line outlines this part's own polygons as one shape. Child parts keep their own lines." : "This part has no polygons of its own; outline its child parts instead.";
-  box.appendChild(h);
-  return box;
+  g.appendChild(h);
 }
 /* Draw order: a part is drawn over the siblings before it in its parent's list, under the ones after it. */
 /* Copy or move a polygon to another view (front / back / left / right). It lands in the section you pick (default: the matching one: armNear -> armL, tail -> tailL ...), at the same place INSIDE
@@ -1339,7 +1427,7 @@ function layerControls(ins, o) {
   const parent = selectedParent(); if (!parent) return;
   const i = parent.kids.indexOf(o), last = parent.kids.length - 1;
   const mv = to => change(() => { parent.kids.splice(i, 1); parent.kids.splice(to, 0, o); });
-  const d = document.createElement("div"); d.className = "btns";
+  const d = document.createElement("div"); d.className = "btns q";
   d.append(btn("To back", () => mv(0), "", i === 0), btn("Back one", () => mv(i - 1), "", i === 0), btn("Forward one", () => mv(i + 1), "", i === last), btn("To front", () => mv(last), "", i === last));
   const h = document.createElement("p"); h.className = "hint"; h.textContent = `Layer ${i + 1} of ${parent.kids.length} under "${parent.name || "node"}" (1 = at the back). Keys: [ back one, ] forward one.`;
   ins.append(d, h);
@@ -1366,49 +1454,46 @@ function setImgSize(p, w, h) {   // keep the centre and the turn; change the len
   p.pts = [k(-0.5, -0.5), k(0.5, -0.5), k(0.5, 0.5), k(-0.5, 0.5)];
 }
 function imageInspector(ins, o) {
-  const p = o.poly, parent = selectedParent(), view = ui.view;
-  const name = document.createElement("input"); name.type = "text"; name.value = p.name || ""; name.placeholder = "name (optional)";
-  name.addEventListener("change", () => { const t = prefixOf(view, o); if (t && name.value.trim()) name.value = rebaseName(name.value, t, "polygon"); change(() => { p.name = name.value; }, "name"); }); ins.appendChild(field("Name", name));
-  const url = imgUrl(p.img.file), th = document.createElement("div"); th.style.cssText = "height:90px;border:1px solid var(--line,#333);border-radius:6px;display:grid;place-items:center;background:#12142a;margin:4px 0";
+  const p = o.poly, parent = selectedParent();
+  let g = insSection(ins, "Picture");
+  const url = imgUrl(p.img.file), th = document.createElement("div"); th.className = "w2"; th.style.cssText = "height:90px;border:1px solid var(--line,#333);border-radius:6px;display:grid;place-items:center;background:#12142a";
   if (url) { const im = document.createElement("img"); im.src = url; im.style.cssText = "max-width:100%;max-height:100%"; th.appendChild(im); } else th.textContent = IMG.files && !IMG.files[p.img.file] ? "⚠ not in the library" : "loading…";
-  ins.appendChild(th);
-  const f1 = document.createElement("p"); f1.className = "hint"; f1.textContent = `${p.img.file}  ·  ${p.img.w}×${p.img.h} px`; ins.appendChild(f1);
+  g.appendChild(th);
+  const f1 = document.createElement("p"); f1.className = "hint"; f1.textContent = `${p.img.file}  ·  ${p.img.w}×${p.img.h} px`; g.appendChild(f1);
   const b1 = document.createElement("div"); b1.className = "btns";
   b1.append(btn("Replace picture…", async () => { const f = await imgPicker({ pick: true, title: "Pick another picture" }); if (!f) return; const files = await imgList(), m = files[f] || { w: p.img.w, h: p.img.h }; change(() => { p.img = { file: f, w: m.w, h: m.h }; setImgSize(p, imgSizeOf(p)[0], imgSizeOf(p)[0] * m.h / m.w); }); }),
     btn("Cut / edit the picture…", async () => { const r = await imgPrep({ name: p.img.file }); if (r) { IMG.onChange(); } }));
-  ins.appendChild(b1);
+  g.appendChild(b1);
+  g = insSection(ins, "Part");
+  g.appendChild(field("Name", nameField(o), true));
+  g.appendChild(field("Part", partPicker(o, parent), true));
+  layerControls(g, o);
+  g = insSection(ins, "Frames and states");
   const b2f = document.createElement("div"); b2f.className = "btns";
   b2f.append(btn("Frames…", async () => {
     const r = await imgFramesDialog(p.img, { run: true }); if (!r) return;
     change(() => { const file = p.img.file, w0 = imgSizeOf(p)[0]; if (r.cols === 1 && r.rows === 1) p.img = { file, w: r.w, h: r.h }; else p.img = Object.assign({ file }, r); setImgSize(p, w0, w0 * p.img.h / p.img.w); });
   }));
-  ins.appendChild(field(imgIsSheet(p.img) ? `Frames (${imgFrameCount(p.img)}, ${p.img.mode || "loop"})` : "Frames", b2f));
+  g.appendChild(field(imgIsSheet(p.img) ? `Frames (${imgFrameCount(p.img)}, ${p.img.mode || "loop"})` : "Frames", b2f, true));
   if (imgIsSheet(p.img)) {
     const fr = document.createElement("input"); fr.type = "range"; fr.min = 0; fr.max = imgFrameCount(p.img) - 1; fr.step = 1; fr.value = Math.min(picFrames.get(p) || 0, imgFrameCount(p.img) - 1);
-    fr.addEventListener("input", () => { picFrames.set(p, +fr.value); renderEdit(); }); ins.appendChild(field("Frame shown here", fr));
+    fr.addEventListener("input", () => { picFrames.set(p, +fr.value); renderEdit(); }); g.appendChild(field("Frame shown here", fr, true));
   }
-  const whenBox = document.createElement("div"); whenBox.className = "btns";
   for (const flag of ["moving", "aiming", "firing"]) {
-    const sel = document.createElement("select"); [["", flag + ": either"], [flag, flag + ": yes"], ["!" + flag, flag + ": no"]].forEach(([v, l]) => { const o = document.createElement("option"); o.value = v; o.textContent = l; sel.appendChild(o); });
+    const sel = document.createElement("select"); [["", "either"], [flag, "yes"], ["!" + flag, "no"]].forEach(([v, l]) => { const op = document.createElement("option"); op.value = v; op.textContent = l; sel.appendChild(op); });
     sel.value = (p.when || []).find(w => w === flag || w === "!" + flag) || "";
+    sel.title = "Show this picture only when the puppet is " + flag + " (yes), only when it is not (no), or in either case";
     sel.addEventListener("change", () => change(() => { const rest = (p.when || []).filter(w => w !== flag && w !== "!" + flag); if (sel.value) rest.push(sel.value); if (rest.length) p.when = rest; else delete p.when; }));
-    whenBox.appendChild(sel);
+    g.appendChild(field("Shown when " + flag, sel));
   }
-  ins.appendChild(field("Shown when", whenBox));
+  g = insSection(ins, "Size and transform");
   const [w, h] = imgSizeOf(p);
-  ins.appendChild(field("Size (units)", xy(numInput(w, v => change(() => setImgSize(p, Math.max(0.1, v), imgSizeOf(p)[1])), 0.5), numInput(h, v => change(() => setImgSize(p, imgSizeOf(p)[0], Math.max(0.1, v))), 0.5))));
-  const b0 = document.createElement("div"); b0.className = "btns";
-  b0.append(btn("Match the picture's shape", () => change(() => { const [cw] = imgSizeOf(p); setImgSize(p, cw, cw * p.img.h / p.img.w); })), btn("Flip ↔", () => flip(true)), btn("Flip ↕", () => flip(false)), btn("Grow 10%", () => grow(1.1)), btn("Shrink 10%", () => grow(1 / 1.1)));
-  ins.appendChild(b0);
-  const rb = document.createElement("div"); rb.className = "btns";
-  rb.append(btn("↺ 90°", () => rotatePoly(-90)), btn("↺ 15°", () => rotatePoly(-15)), btn("↻ 15°", () => rotatePoly(15)), btn("↻ 90°", () => rotatePoly(90)));
-  ins.appendChild(field("Rotate", rb));
-  const ang = document.createElement("input"); ang.type = "number"; ang.value = 45; ang.step = 5; ang.style.width = "64px";
-  const goRot = document.createElement("div"); goRot.className = "btns"; goRot.append(ang, btn("Rotate", () => rotatePoly(+ang.value || 0)));
-  ins.appendChild(field("Rotate by °", goRot));
-  layerControls(ins, o);
-  ins.appendChild(clipboardControls(o, parent));
-  const b3 = document.createElement("div"); b3.className = "btns"; b3.append(btn("Delete picture", deleteSelected, "danger")); ins.appendChild(b3);
+  g.appendChild(field("Size (units)", xy(numInput(w, v => change(() => setImgSize(p, Math.max(0.1, v), imgSizeOf(p)[1])), 0.5), numInput(h, v => change(() => setImgSize(p, imgSizeOf(p)[0], Math.max(0.1, v))), 0.5)), true));
+  const b0 = document.createElement("div"); b0.className = "btns"; b0.append(btn("Match the picture's shape", () => change(() => { const [cw] = imgSizeOf(p); setImgSize(p, cw, cw * p.img.h / p.img.w); })));
+  g.appendChild(b0);
+  transformControls(g, o);
+  g = insSection(ins, "Clipboard"); g.appendChild(clipboardControls(o, parent));
+  deleteBar(ins, "Delete picture");
   const h2 = document.createElement("p"); h2.className = "hint"; h2.textContent = "A picture moves, turns and mirrors with its part like any shape (drag it on the canvas, arrows nudge it). Its transparency is kept. Editing the picture changes it everywhere it is used.";
   ins.appendChild(h2);
 }
@@ -1476,17 +1561,25 @@ function xformKids(kids, kind, v, c) {
     });
   }
 }
-function transformControls(o) {
-  const wrap = document.createElement("div"); wrap.style.display = "grid"; wrap.style.gap = "6px";
-  const cb = document.createElement("input"); cb.type = "checkbox"; const cl = document.createElement("label"); cl.style.cssText = "display:flex;gap:6px;align-items:center;font-size:12px;color:var(--dim)"; cl.title = "Off: turn / flip / scale around this pivot's own origin (the pink cross). On: around the middle of everything inside it."; cl.append(cb, "about the middle of the contents");
-  const run = (kind, v) => { if (!o.kids.length) { setStatus("Nothing inside this pivot yet", "warn"); return; } change(() => { xformKids(o.kids, kind, v, cb.checked ? contentCentre(o) : [0, 0]); }); };
-  const r1 = document.createElement("div"); r1.className = "btns"; r1.append(btn("\u21ba 90\u00b0", () => run("rotate", -Math.PI / 2)), btn("\u21ba 15\u00b0", () => run("rotate", -Math.PI / 12)), btn("\u21bb 15\u00b0", () => run("rotate", Math.PI / 12)), btn("\u21bb 90\u00b0", () => run("rotate", Math.PI / 2)));
-  const deg = numInput(45, () => {}, 1); deg.style.width = "64px"; const rb = btn("Rotate by \u00b0", () => run("rotate", (parseFloat(deg.value) || 0) * Math.PI / 180)); r1.append(deg, rb);
-  const r2 = document.createElement("div"); r2.className = "btns"; r2.append(btn("Flip \u2194", () => run("flip", "x")), btn("Flip \u2195", () => run("flip", "y")), btn("Grow 10%", () => run("scale", 1.1)), btn("Shrink 10%", () => run("scale", 1 / 1.1)));
-  const k = numInput(1.25, () => {}, 0.05); k.style.width = "64px"; r2.append(k, btn("Scale by \u00d7", () => { const f = parseFloat(k.value); if (f > 0) run("scale", f); }));
-  wrap.append(r1, r2, cl);
-  const h = document.createElement("p"); h.className = "hint"; h.textContent = "Changes everything INSIDE this pivot (its polygons, sub-pivots and their contents), baked into the drawing. The pivot's own position, rotation and scale (the boxes above) are not touched. Undo with Ctrl+Z."; wrap.appendChild(h);
-  return field("Transform", wrap);
+/* The Name box of a polygon, picture or pivot: names start with their top-level part, which is added for you when you finish typing. */
+function nameField(o) {
+  const poly = isPoly(o), view = ui.view, d = poly ? o.poly : o;
+  const name = document.createElement("input"); name.type = "text"; name.value = d.name || ""; if (poly) name.placeholder = "name (optional)";
+  name.title = "Names start with their top-level part (armL ...): it is added for you when you finish typing";
+  name.addEventListener("change", () => { const top = topOf(view, o); if (top && top !== o && name.value.trim()) name.value = rebaseName(name.value, top.name, poly ? "polygon" : "pivot"); change(() => { d.name = name.value; }, "name"); });
+  return name;
+}
+/* The line controls, the same for a polygon's Outline and a pivot's Section line: an on / off box, a thickness and a colour. c = {label, on, setOn(v), thickness, setThickness(v), colour (hex), setColour(hex), disabled?, hideWhenOff?} */
+function lineControls(g, c) {
+  const ck = document.createElement("input"); ck.type = "checkbox"; ck.checked = !!c.on; ck.disabled = !!c.disabled; ck.addEventListener("change", () => c.setOn(ck.checked));
+  g.appendChild(field(c.label, ck));
+  if (c.hideWhenOff && !c.on) return;
+  g.appendChild(field("Thickness", numInput(c.thickness, v => c.setThickness(v), 0.1)));
+  const col = document.createElement("input"); col.type = "color"; col.value = "#" + c.colour; col.addEventListener("input", () => c.setColour(col.value.slice(1))); g.appendChild(field("Line colour", col));
+}
+/* The delete button under the sections (disabled with a reason when it cannot be used). */
+function deleteBar(ins, label, disabled) {
+  const b = document.createElement("div"); b.className = "ig-danger"; b.append(btn(label, deleteSelected, "danger", !!disabled)); ins.appendChild(b);
 }
 /* ---------- naming convention: every part / pivot / polygon name starts with its TOP-LEVEL part (armL > "armL shoulder pivot" > "armL shoulder shade") ---------- */
 const KNOWN_TOPS = ["armL", "armR", "armNear", "armFar", "legL", "legR", "legNear", "legFar", "tailL", "tailR", "tail", "torso", "head", "coat"];
@@ -1576,7 +1669,7 @@ function doPaste(dest) {
   setStatus("Pasted " + (o.mode === "replace" ? "over the contents of " : "into ") + (dest.name || "part") + (mirror ? " (mirrored)" : ""), "ok");
 }
 function clipboardControls(o, parent) {
-  const wrap = document.createElement("div"); wrap.style.display = "grid"; wrap.style.gap = "6px";
+  const wrap = document.createElement("div"); wrap.className = "w2"; wrap.style.display = "grid"; wrap.style.gap = "7px";
   const poly = isPoly(o), dest = poly ? parent : o, root = doc.views[ui.view], isRoot = o === root;
   const r1 = document.createElement("div"); r1.className = "btns";
   if (poly) r1.append(btn("Copy", () => doCopy(o, "poly", false)), btn("Cut", () => doCopy(o, "poly", true)));
@@ -1588,16 +1681,16 @@ function clipboardControls(o, parent) {
   const pi = btn("Paste inside " + (dest ? '"' + (dest.name || "part") + '"' : ""), () => { pasteOpts.mode = "add"; doPaste(dest); }); pi.disabled = !dest || !clip;
   const pr = btn("Replace contents", () => { pasteOpts.mode = "replace"; doPaste(dest); }); pr.disabled = !dest || !clip; pr.title = "Throw away what is inside the destination and put the clipboard's contents there instead (the destination keeps its own place, rotation, scale and rig role)";
   r2.append(pi, pr); wrap.appendChild(r2);
-  const r3 = document.createElement("div"); r3.className = "btns"; r3.style.alignItems = "center";
+  const opts = document.createElement("div"); opts.className = "ig2";
   const ms = document.createElement("select"); [["auto", "mirror: auto (L/R pairs)"], ["yes", "mirror: yes"], ["no", "mirror: no"]].forEach(([v, t]) => { const op = document.createElement("option"); op.value = v; op.textContent = t; if (pasteOpts.mirror === v) op.selected = true; ms.appendChild(op); }); ms.addEventListener("change", () => { pasteOpts.mirror = ms.value; });
-  const chk = (label, key, tip, enabled = true) => { const i = document.createElement("input"); i.type = "checkbox"; i.checked = !!pasteOpts[key]; i.disabled = !enabled; i.addEventListener("change", () => { pasteOpts[key] = i.checked; }); const l = document.createElement("label"); l.style.cssText = "display:flex;gap:5px;align-items:center;font-size:12px;color:var(--dim)"; l.title = tip; l.append(i, label); return l; };
+  const chk = (label, key, tip, enabled = true) => { const i = document.createElement("input"); i.type = "checkbox"; i.checked = !!pasteOpts[key]; i.disabled = !enabled; i.addEventListener("change", () => { pasteOpts[key] = i.checked; }); const l = document.createElement("label"); l.className = "chk"; l.title = tip; l.append(i, label); return l; };
   const same = clip && clip.puppet === CHAR && clip.view === ui.view;
-  r3.append(ms, chk("keep screen position", "keep", same ? "Land where it was on screen (same puppet and view only)" : "Only available inside the same puppet and view", !!same), chk("rename to the new part", "rename", "Re-prefix the pasted names with the destination's top-level part"), chk("copy tint + section line", "style", "With Replace contents: also copy the source pivot's tint and section line"));
-  wrap.appendChild(r3);
+  opts.append(ms, chk("keep screen position", "keep", same ? "Land where it was on screen (same puppet and view only)" : "Only available inside the same puppet and view", !!same), chk("rename to the new part", "rename", "Re-prefix the pasted names with the destination's top-level part"), chk("copy tint + section line", "style", "With Replace contents: also copy the source pivot's tint and section line"));
+  wrap.appendChild(opts);
   const r4 = document.createElement("div"); r4.className = "btns";
   r4.append(btn("Duplicate", () => (poly ? dup(false) : dupPivot(o, parent, false)), "", isRoot), btn("Mirror copy", () => (poly ? dup(true) : dupPivot(o, parent, true)), "", isRoot)); wrap.appendChild(r4);
   const h = document.createElement("p"); h.className = "hint"; h.textContent = "Ctrl+C / Ctrl+X / Ctrl+V work too (not while typing). The clipboard survives switching views and puppets, so this one tool also moves things between puppets. Cut can be undone with Ctrl+Z."; wrap.appendChild(h);
-  return field("Copy / Cut / Paste", wrap);
+  return wrap;
 }
 function dupPivot(o, parent, mirror) { if (!parent) return; const c = copyPivot(o, mirror); change(() => { parent.kids.splice(parent.kids.indexOf(o) + 1, 0, c); }); select({ obj: c }); }
 window.addEventListener("keydown", e => {
