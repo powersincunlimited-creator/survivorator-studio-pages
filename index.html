@@ -47,6 +47,13 @@ textarea { width: 100%; font-family: var(--mono); font-size: 12px; min-height: 2
 input[type=color] { width: 40px; height: 28px; padding: 0; background: none; border: 1px solid var(--line); border-radius: 5px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
 .card > summary { cursor: pointer; font-weight: 600; }
+.card[open] > summary { padding-bottom: 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+/* a form section laid out in two columns: short rows side by side with the label above, wide rows (.w2) and anything that is not a row across both */
+.cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, max(330px, 48%)), 1fr)); gap: 0 26px; margin-top: 6px; }
+.cgrid > .row { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+.cgrid > .row > label { padding-top: 0; font-size: 12px; color: var(--dim); }
+.cgrid > .row.w2, .cgrid > :not(.row) { grid-column: 1 / -1; }
+.cardbar { display: flex; gap: 6px; justify-content: flex-end; margin: 0 0 8px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
 .row { display: grid; grid-template-columns: 190px 1fr; gap: 10px; align-items: start; padding: 5px 0; border-bottom: 1px solid #ffffff08; }
 .row > label { color: var(--text); padding-top: 5px; }
@@ -2412,15 +2419,16 @@ function powerForm(p, f = "powers", opts = {}) {
   const out = h("div", {});
   if (!opts.noProblems) out.append(problemBlock(problemsFor("powers", p.id + ":")));
   out.append(h("details", { class: "card", open: true }, h("summary", {}, "The basics"),
-    opts.noId ? null : row("id", [h("span", {}, p.id), h("span", { class: "unit" }, "(fixed: heroes, bosses and looks refer to it)")]), row("name", textField(p, "name", f, { after: re })),
+    row("name", textField(p, "name", f, { after: re })),
+    opts.noId ? null : row("id", [h("span", {}, p.id), h("span", { class: "unit" }, "(fixed: heroes, bosses and looks refer to it)")]),
     row("delivery shape", selectField(p, "shape", f, C.shapes.map(s => [s, `${(SHAPE_INFO[s] || {}).label || s}  (${s})`]), { after: () => { for (const [k, d] of (SHAPE_INFO[p.shape] || { fields: [] }).fields) if (p[k] === undefined) p[k] = d; re(); } }), info.help),
+    row("tags", tagPicker(p, "tags", f))));
+  out.append(h("details", { class: "card", open: true }, h("summary", {}, "Damage and timing"),
     row("damage", [numField(p, "damage", f, { min: 0, after: re }), h("span", { class: "unit" }, "per hit (per tick for ticking shapes)")]),
     row("damage type", selectField(p, "damage_type", f, C.damage_types), "random: each hit rolls one of the six schools."),
     row("cooldown", [numField(p, "cooldown", f, { min: 0, optional: true, after: re }), h("span", { class: "unit" }, "s between uses (an aura has none: it ticks)")]),
-    row("tags", tagPicker(p, "tags", f)),
-    row("flat damage share", [numField(p, "flat_scale", f, { def: 1, optional: true, min: 0 }), h("span", { class: "unit" }, "times the hero's flat damage, added per hit: use about 0.2 for pellets, 0.25 for beams, 0.3 for zones and auras, and 0.35 for drones")], null, p.flat_scale !== undefined)));
-  const est = estimate(p);
-  out.append(h("p", { class: "dim", style: "margin:-4px 0 12px" }, est));
+    row("flat damage share", [numField(p, "flat_scale", f, { def: 1, optional: true, min: 0 }), h("span", { class: "unit" }, "times the hero's flat damage, added per hit")], "Use about 0.2 for pellets, 0.25 for beams, 0.3 for zones and auras, and 0.35 for drones.", p.flat_scale !== undefined),
+    h("p", { class: "dim", style: "margin:6px 0 0" }, estimate(p))));
   out.append(h("details", { class: "card", open: true }, h("summary", {}, "Numbers for a " + info.label), info.fields.length ? info.fields.map(([k, d, unit, whole]) => row(k, [numField(p, k, f, { def: d, optional: true, integer: whole, min: 0 }), h("span", { class: "unit" }, unit)], null, p[k] !== undefined)) : h("p", { class: "dim" }, "This shape has no extra numbers.")));
   // effect
   const eff = p.effect || {};
@@ -2508,12 +2516,14 @@ function tabGear() {
     t1.addEventListener("change", () => setTags(t1.value.trim(), t2.value.trim())); t2.addEventListener("change", () => setTags(t1.value.trim(), t2.value.trim()));
     form.append(h("datalist", { id: "gearTags" }, [...new Set([...TAG_VOCAB.flatMap(x => x[1]), ...Object.values(ge.sets).flatMap(s => s.tags || [s.tag])])].filter(Boolean).map(t => h("option", { value: t }))),
       problemBlock(problemsFor("gear", sel + (":") )),
-      h("details", { class: "card", open: true }, h("summary", {}, "The set"), row("id", [h("span", {}, sel), h("span", { class: "unit" }, "(fixed: heroes and unlocks refer to it)")]), row("name", textField(set, "name", f, { after: re })),
-        row("tags", [t1, t2], "One tag, or two for a hybrid set. They tie it to the powers and heroes the shop pairs it with."), row("description", textField(set, "desc", f)), row("4-piece text", textField(set, "passive", f), "Flavour text for the 4-piece effect: the effect itself is the special stat in the 4-piece bonus below.")),
+      h("details", { class: "card", open: true }, h("summary", {}, "The set"), row("name", textField(set, "name", f, { after: re })), row("description", textField(set, "desc", f)), row("4-piece text", textField(set, "passive", f), "Flavour text for the 4-piece effect: the effect itself is the special stat in the 4-piece bonus below."),
+        row("id", [h("span", {}, sel), h("span", { class: "unit" }, "(fixed: heroes and unlocks refer to it)")]), row("tags", [t1, t2], "One tag, or two for a hybrid set. They tie it to the powers and heroes the shop pairs it with.")),
       h("details", { class: "card", open: true }, h("summary", {}, "Pieces"), ge.slots.map(slot => {
         const piece = set.pieces[slot] = set.pieces[slot] || { name: "", mods: {} };
         piece.mods = piece.mods || {};
-        return h("div", { style: "border-bottom:1px solid #ffffff10;padding:6px 0" }, row(slot, textField(piece, "name", f)), row("stats", statEditor(piece.mods, f, re)));
+        const r = row(slot, h("div", {}, textField(piece, "name", f), h("div", { style: "height:6px" }), statEditor(piece.mods, f, re)));
+        r.classList.add("half");   // a piece is half the width, two side by side
+        return r;
       })),
       h("details", { class: "card", open: true }, h("summary", {}, "Set bonuses"), ["b2", "b3", "b4"].map(b => row(b === "b2" ? "2 pieces" : b === "b3" ? "3 pieces" : "4 pieces", statEditor(set[b] = set[b] || {}, f, re), b === "b4" ? "Stat keys such as kill_speed_burst, overload_chance and emergency_shield switch on the special effects the 4-piece promises." : null)), gearTotals(set, ge.slots)),
       h("details", { class: "card" }, h("summary", {}, `Where it is used (${gearRefs(sel).length})`), gearRefs(sel).length ? h("ul", {}, gearRefs(sel).map(r => h("li", {}, r))) : h("p", { class: "dim" }, "Nothing refers to it: it can drop and be sold from the start.")));
@@ -2703,12 +2713,15 @@ function tabBosses() {
   const form = h("div", {});
   if (b) {
     form.append(problemBlock(problemsFor("bosses", b.id + ":")),
-      h("details", { class: "card", open: true }, h("summary", {}, b.name || b.id),
-        row("id", [h("span", {}, b.id), h("span", { class: "unit" }, "(fixed)")]), row("name", textField(b, "name", f, { after: re })), row("alias", textField(b, "alias", f), "The subtitle on the wanted poster."),
-        row("first wave", [numField(b, "wave", f, { integer: true, min: 1 }), h("span", { class: "unit" }, "(informational; the order of the list decides which boss comes when)")]),
+      h("details", { class: "card", open: true }, h("summary", {}, "Who they are"),
+        row("name", textField(b, "name", f, { after: re })), row("alias", textField(b, "alias", f), "The subtitle on the wanted poster."),
+        row("id", [h("span", {}, b.id), h("span", { class: "unit" }, "(fixed)")]),
         row("rank", selectField(b, "rank", f, [1, 2, 3, 4, 5].map(n => [n, "★".repeat(n)]), { number: true }), "The difficulty: also the rank of its signature power."),
+        row("first wave", [numField(b, "wave", f, { integer: true, min: 1 }), h("span", { class: "unit" }, "(informational)")], "The order of the list decides which boss comes when.")),
+      h("details", { class: "card", open: true }, h("summary", {}, "Body and numbers"),
         row("health", numField(b, "hp", f, { min: 1 })), row("speed", [numField(b, "speed", f, { min: 0 }), h("span", { class: "unit" }, "px/s")]), row("touch damage", numField(b, "damage", f, { min: 0 })),
-        row("body radius", [numField(b, "radius", f, { min: 8 }), h("span", { class: "unit" }, "px")]), row("colour", colorField(b, "color", f, { after: re })), row("shape", selectField(b, "shape", f, C.silhouettes)),
+        row("body radius", [numField(b, "radius", f, { min: 8 }), h("span", { class: "unit" }, "px")]), row("colour", colorField(b, "color", f, { after: re })), row("shape", selectField(b, "shape", f, C.silhouettes))),
+      h("details", { class: "card", open: true }, h("summary", {}, "Rewards"),
         row("signature power", selectField(b, "signature", f, (S.files.powers.powers || []).map(p => [p.id, p.name || p.id])), "Dropped on defeat (and unlocked for good by its achievement)."), row("bounty", [numField(b, "bounty", f, { integer: true, min: 0 }), h("span", { class: "unit" }, "currency to every hero")])),
       bossBackup(b, f, re), bossAbilities(b, f, re));
   } else form.append(h("p", { class: "lead" }, "No bosses yet."));
@@ -2841,7 +2854,7 @@ function tabShop() {
   const wrap = h("div", {}, h("h2", {}, "Shop leanings"), h("p", { class: "lead" }, "The shop is not random: it leans toward what fits the hero's build (set completion, class, powers they own). The one thing you set here is each hero's own gear set: offers of that set are likelier for that hero."));
   wrap.append(problemBlock(problemsFor("shop", "")));
   const sets = Object.entries(S.files.gear.sets || {}).map(([id, s]) => [id, s.name || id]);
-  for (const x of S.files.heroes.heroes || []) wrap.append(row(x.name || x.id, selectField(sh.own_set, x.id, "shop", sets, { optional: true, emptyLabel: "(none)" })));
+  wrap.append(h("details", { class: "card", open: true }, h("summary", {}, "Each hero's own gear set"), (S.files.heroes.heroes || []).map(x => row(x.name || x.id, selectField(sh.own_set, x.id, "shop", sets, { optional: true, emptyLabel: "(none)" })))));
   wrap.append(h("p", { class: "dim" }, "How strongly the shop leans grows with the wave (the rules under Rules → Shop and prices and Rules → Loot and rarity change prices and rarity; the lean itself is built in)."));
   return wrap;
 }
@@ -3242,40 +3255,42 @@ function uiSidebar(def, st, editable, f, redraw, re) {
   const num = (k, o = {}) => numField(el, k, f, { optional: true, ...o, after });
   const col = (k, o = {}) => uiColorField(el, k, f, after, o);
   if (!isTemplate) props.append(row("id", textField(el, "id", f, { after: () => { const dup = uiAllIds(def).filter(x => x === el.id).length > 1; if (dup) { toast("That id is taken"); } re(); } })));
+  const place = h("details", { class: "card", open: true }, h("summary", {}, "Placement and size"));
+  const body = h("details", { class: "card", open: true }, h("summary", {}, { panel: "Panel look", group: "Layout", label: "Text", button: "Button", richtext: "Text", image: "Picture", bar: "Bar", repeat: "List" }[el.type] || "Look"));
   const isAbs = uiIsAbs(def, sel);
   if (isAbs && !isTemplate) {
-    props.append(row("anchor", selectField(el, "anchor", f, ["top_left", "top", "top_right", "left", "center", "right", "bottom_left", "bottom", "bottom_right", "full"], { optional: true, emptyLabel: "top_left", after }), "Where it is pinned. Its own matching corner sits on that point."));
+    place.append(row("anchor", selectField(el, "anchor", f, ["top_left", "top", "top_right", "left", "center", "right", "bottom_left", "bottom", "bottom_right", "full"], { optional: true, emptyLabel: "top_left", after }), "Where it is pinned. Its own matching corner sits on that point."));
     const full = el.anchor === "full";
-    props.append(row(full ? "margin left / top" : "x / y", [num("x", { def: 0 }), num("y", { def: 0 })], full ? "Gaps from the left and top edges." : "Offset from the anchor point, in px."),
+    place.append(row(full ? "margin left / top" : "x / y", [num("x", { def: 0 }), num("y", { def: 0 })], full ? "Gaps from the left and top edges." : "Offset from the anchor point, in px."),
       row(full ? "margin right / bottom" : "width / height", [num("w", { def: 0, min: 0 }), num("h", { def: 0, min: 0 })], full ? "Gaps from the right and bottom edges." : "0 = as small as the content."));
-  } else props.append(row("min width / height", [num("w", { def: 0, min: 0 }), num("h", { def: 0, min: 0 })], "A group places its children in order; this is the least space this one takes. 0 = just its content."));
-  props.append(row("expand / stretch", [boolField(el, "expand", f, { optional: true, after }), num("stretch", { def: 1, min: 0.1, step: "any" })], "Takes the room the group has left; stretch = its share next to other expanding siblings (2 = twice as much)."));
+  } else place.append(row("min width / height", [num("w", { def: 0, min: 0 }), num("h", { def: 0, min: 0 })], "A group places its children in order; this is the least space this one takes. 0 = just its content."));
+  place.append(row("expand / stretch", [boolField(el, "expand", f, { optional: true, after }), num("stretch", { def: 1, min: 0.1, step: "any" })], "Takes the room the group has left; stretch = its share next to other expanding siblings (2 = twice as much)."));
   props.append(row("visible if", textField(el, "visible_if", f, { optional: true, list: "uiVisible", placeholder: "module:coop", after }), "module:name, !module:name, ctx:name or !ctx:name. Leave empty to always show."));
   switch (el.type) {
-    case "panel": props.append(row("fill", col("fill")), row("border", col("border", { none: true })), row("corner radius", num("radius", { def: 0 }))); break;
-    case "group": props.append(row("layout", selectField(el, "layout", f, ["vbox", "hbox"], { optional: true, emptyLabel: "vbox", after })), row("gap", num("gap", { def: 8 })), row("align", selectField(el, "align", f, ["start", "center", "end"], { optional: true, emptyLabel: "center", after })),
+    case "panel": body.append(row("fill", col("fill")), row("border", col("border", { none: true })), row("corner radius", num("radius", { def: 0 }))); break;
+    case "group": body.append(row("layout", selectField(el, "layout", f, ["vbox", "hbox"], { optional: true, emptyLabel: "vbox", after })), row("gap", num("gap", { def: 8 })), row("align", selectField(el, "align", f, ["start", "center", "end"], { optional: true, emptyLabel: "center", after })),
       row("background", col("fill", { none: true }), "Give the group a panel behind it (it sizes itself to its content). Empty = no panel."), row("panel border / padding", [col("border", { none: true }), num("pad", { def: 16 })]),
       row("clips", boolField(el, "clip", f, { optional: true, after }), "Cut off whatever does not fit instead of spilling out."),
       row("scrolls", boolField(el, "scroll", f, { optional: true, after }), "With a width and height set, the group becomes a scroll box when its children do not fit.")); break;
-    case "label": props.append(row("text", uiTextArea(el, "text", f, after)), row("size", uiSizeField(el, f, after)), row("colour", col("color")), row("align", selectField(el, "align", f, ["left", "center", "right"], { optional: true, emptyLabel: "left", after })), row("wrap", boolField(el, "wrap", f, { optional: true, after }))); break;
-    case "button": props.append(row("text", textField(el, "text", f, { after })), row("action", textField(el, "action", f, { list: "uiActions", after }), "The name the game listens for when it is pressed."),
+    case "label": body.append(row("text", uiTextArea(el, "text", f, after)), row("size", uiSizeField(el, f, after)), row("colour", col("color")), row("align", selectField(el, "align", f, ["left", "center", "right"], { optional: true, emptyLabel: "left", after })), row("wrap", boolField(el, "wrap", f, { optional: true, after }))); break;
+    case "button": body.append(row("text", textField(el, "text", f, { after })), row("action", textField(el, "action", f, { list: "uiActions", after }), "The name the game listens for when it is pressed."),
       row("style", selectField(el, "style", f, ["normal", "accent", "danger"], { optional: true, emptyLabel: "normal", after })), row("size", uiSizeField(el, f, after)),
       row("text colour", col("color", { none: false })), row("text align", selectField(el, "align", f, ["left", "center"], { optional: true, emptyLabel: "center", after })),
       row("no keyboard focus", boolField(el, "nofocus", f, { optional: true, after }), "For screens where the game drives its own cursor (a column per hero)."), row("shortcut key", textField(el, "key", f, { optional: true, placeholder: "R", after }), "A key that does the same as a click (a letter, F1 to F12, Escape, Enter, Space and so on)."),
       row("starts focused", boolField(el, "focus", f, { optional: true, after }), "The button the keyboard / controller cursor starts on."),
       row("enabled if", textField(el, "enabled_if", f, { optional: true, placeholder: "item.can_buy", after }), "ctx:name, or item.field inside a repeat template: greyed out and not pressable when it is false.")); break;
-    case "richtext": props.append(row("text (bbcode)", uiTextArea(el, "text", f, after), "[b] [i] [color=#rrggbb] work; {variables} fill in."), row("size", uiSizeField(el, f, after)), row("colour", col("color"))); break;
-    case "image": props.append(row("picture", [textField(el, "file", f, { placeholder: "frame.png  or  {item.icon}", after }), h("button", { class: "btn small", onclick: async () => { const p = await imgPicker({ pick: true, title: "Pick a picture" }); if (p) { el.file = p; touch(f); redraw(); } } }, "choose from the library…")], "A picture of the library (Pictures tab). It may hold {variables}, so a list can show a different one per item. The game reads art/library/ (py tools/studio/sync_images.py pull)."),
+    case "richtext": body.append(row("text (bbcode)", uiTextArea(el, "text", f, after), "[b] [i] [color=#rrggbb] work; {variables} fill in."), row("size", uiSizeField(el, f, after)), row("colour", col("color"))); break;
+    case "image": body.append(row("picture", [textField(el, "file", f, { placeholder: "frame.png  or  {item.icon}", after }), h("button", { class: "btn small", onclick: async () => { const p = await imgPicker({ pick: true, title: "Pick a picture" }); if (p) { el.file = p; touch(f); redraw(); } } }, "choose from the library…")], "A picture of the library (Pictures tab). It may hold {variables}, so a list can show a different one per item. The game reads art/library/ (py tools/studio/sync_images.py pull)."),
       row("fit", selectField(el, "fit", f, ["stretch", "contain", "cover", "center"], { optional: true, emptyLabel: "stretch", after }), "contain = whole picture, keeps its shape; cover = fills the box, may crop; center = its own size."),
       row("nine-patch margins", [0, 1, 2, 3].map(i => { const inp = h("input", { type: "number", min: 0, style: "width:64px", value: Array.isArray(el.slice) ? el.slice[i] : "", placeholder: ["left", "top", "right", "bottom"][i] }); inp.addEventListener("change", () => { const cur = Array.isArray(el.slice) ? el.slice.slice() : [0, 0, 0, 0]; cur[i] = Math.max(0, Number(inp.value) || 0); if (cur.every(x => x === 0)) delete el.slice; else el.slice = cur; touch(f); after(); }); return inp; }), "For a frame / panel picture: the corners (these many pixels of the picture) stay as drawn and the middle stretches. Leave empty for a plain picture."),
       row("tint", col("tint", { none: true }), "Multiplies the picture's colours (white or empty = as drawn)."),
       row("frames", [h("button", { class: "btn small", onclick: async () => { const r = await imgFramesDialog({ file: el.file, cols: el.cols, rows: el.rows, count: el.count, fps: el.fps, mode: el.mode }, {}); if (!r) return; for (const k of ["cols", "rows", "count", "fps", "mode"]) delete el[k]; if (r.cols * r.rows > 1) { el.cols = r.cols; el.rows = r.rows; if (r.count) el.count = r.count; el.fps = r.fps; el.mode = r.mode; } touch(f); redraw(); } }, imgIsSheet(el) ? `Frames… (${imgFrameCount(el)}, ${el.mode || "loop"} at ${el.fps ?? 12}/s)` : "Frames…"),
         imgIsSheet(el) ? h("span", { class: "hint" }, "A sheet shows one cell stretched to the box (fit and nine-patch do not apply).") : null], "Make this picture a sheet of frames (a grid): columns, rows, speed, loop or once.")); break;
-    case "bar": props.append(row("value", textField(el, "value", f, { after }), "0 to 1: a number, or a {name} from the context."), row("fill", col("fill")), row("background", col("back"))); break;
-    case "repeat": props.append(row("source", textField(el, "source", f, { list: "uiLists", after }), "A list in the context: one copy of the template per item."), row("layout", selectField(el, "layout", f, ["vbox", "hbox", "grid", "anchored"], { optional: true, emptyLabel: "vbox", after })),
+    case "bar": body.append(row("value", textField(el, "value", f, { after }), "0 to 1: a number, or a {name} from the context."), row("fill", col("fill")), row("background", col("back"))); break;
+    case "repeat": body.append(row("source", textField(el, "source", f, { list: "uiLists", after }), "A list in the context: one copy of the template per item."), row("layout", selectField(el, "layout", f, ["vbox", "hbox", "grid", "anchored"], { optional: true, emptyLabel: "vbox", after })),
       row("columns", num("columns", { def: 2, integer: true, min: 1 })), row("gap", num("gap", { def: 8 })), h("p", { class: "dim" }, "Select the 'template' row in the outline to edit what each item looks like. {item.name} and {item.id} read the current item.")); break;
   }
-  wrap.append(props);
+  wrap.append(props, place, body);
   wrap.append(uiVarsPanel(def, st, sel, props));
   // datalists for the suggestions
   const actions = [...new Set(Object.values(C.ui_default.screens).flatMap(s => { const a = []; const w = l => (l || []).forEach(e => { if (e.type === "button") a.push(e.action); w(e.children); }); w(s.elements); return a; }))];
@@ -3805,7 +3820,76 @@ function renderMain() {
   m.append(fn());
   addListFilters(m);
   addIconLabels(m);
+  layoutTree(m);
+  watchLayout(m);
   m.scrollTop = y;
+}
+/* ---- section layout, shared by every tab
+   Each form is a stack of collapsible cards (details.card). After a card is built this lays its rows out in two columns where they are short (a number, a choice, a switch) and gives a row the full width where it needs it
+   (a name, a list of buttons, a table, a long note). It also remembers which cards are open (per tab, by their title), and adds "Open all / Close all" above a stack of three or more.
+   It runs on whatever the page adds, so a tab that redraws part of itself (the rules filter, a list) is laid out too. */
+const SECTION_KEY = "studio_sections";
+let sectionState = {};
+try { sectionState = JSON.parse(localStorage.getItem(SECTION_KEY) || "{}") || {}; } catch (e) { sectionState = {}; }
+function saveSections() { try { localStorage.setItem(SECTION_KEY, JSON.stringify(sectionState)); } catch (e) { /* storage may be blocked */ } }
+function sectionKey(card) {
+  const s = card.querySelector(":scope > summary");
+  const title = s && s.firstChild ? s.firstChild.textContent.replace(/\s*[(·].*$/, "").replace(/\d+/g, "#").trim() : "";
+  return (S.tab || "") + (S.tab === "content" ? ":" + (S.sel.file || "") : "") + "|" + title;
+}
+/* does this row need the full width of the card? */
+function rowIsWide(r) {
+  if (r.classList.contains("half")) return false;
+  if (r.classList.contains("w2")) return true;
+  if (r.querySelector("textarea, table, canvas, img, details, .list, input.wide, select[multiple]")) return true;
+  for (const i of r.querySelectorAll("input[type=text]")) { const w = parseInt(((i.getAttribute("style") || "").match(/width:\s*(\d+)px/) || [0, "0"])[1], 10); if (w >= 260) return true; }
+  const ctl = r.querySelector(":scope > div > .ctl");
+  if (ctl) {
+    if (ctl.querySelector(":scope > div, :scope > ul")) return true;                                                   // a block inside (stat editor, tag picker, lists)
+    if (ctl.querySelectorAll(":scope > button, :scope > select, :scope > input").length >= 5) return true;            // a row of many controls
+    const note = [...ctl.querySelectorAll(":scope > .unit, :scope > .dim")].reduce((n, e) => n + e.textContent.length, 0);
+    if (note > 80) return true;                                                                                       // a long note after the field
+  }
+  const hint = r.querySelector(":scope > div > .hint");
+  return !!hint && hint.textContent.length > 220;
+}
+function layoutCard(card) {
+  if (card.dataset.laid) return;
+  card.dataset.laid = "1";
+  const key = sectionKey(card);
+  if (key in sectionState) card.open = sectionState[key];
+  const sum = card.querySelector(":scope > summary");
+  if (sum) sum.addEventListener("click", () => setTimeout(() => { sectionState[key] = card.open; saveSections(); }, 0));
+  const kids = [...card.children].filter(k => k !== sum);
+  const rows = kids.filter(k => k.classList.contains("row"));
+  if (!rows.length) return;
+  const grid = h("div", { class: "cgrid" });
+  for (const k of kids) { if (k.classList.contains("row") && rowIsWide(k)) k.classList.add("w2"); grid.append(k); }
+  card.append(grid);
+}
+function layoutBar(parent) {
+  if (parent.querySelector(":scope > .cardbar")) return;
+  const cards = [...parent.children].filter(k => k.matches("details.card"));
+  if (cards.length < 3) return;
+  const setAll = on => { for (const c of cards) { c.open = on; sectionState[sectionKey(c)] = on; } saveSections(); };
+  parent.insertBefore(h("div", { class: "cardbar" }, h("button", { class: "btn small", title: "Open every section below", onclick: () => setAll(true) }, "Open all sections"), h("button", { class: "btn small", title: "Close every section below", onclick: () => setAll(false) }, "Close all sections")), cards[0]);
+}
+function layoutTree(root) {
+  if (!root || root.nodeType !== 1) return;
+  const cards = root.matches("details.card") ? [root] : [];
+  cards.push(...root.querySelectorAll("details.card"));
+  for (const c of cards) { layoutCard(c); if (c.parentElement) layoutBar(c.parentElement); }
+}
+let layoutObserver = null;
+function watchLayout(main) {
+  if (layoutObserver) return;
+  let queue = new Set(), timer = null;
+  const flush = () => { timer = null; const q = queue; queue = new Set(); for (const n of q) if (n.isConnected) layoutTree(n); };
+  layoutObserver = new MutationObserver(muts => {
+    for (const m of muts) for (const n of m.addedNodes) if (n.nodeType === 1) queue.add(n);
+    if (queue.size && !timer) timer = setTimeout(flush, 0);
+  });
+  layoutObserver.observe(main, { childList: true, subtree: true });
 }
 /* a button that is only an icon gets a tooltip and a screen-reader label, unless its tab gave it one */
 const ICON_LABELS = { "✕": "Remove", "×": "Remove", "↑": "Move up", "↓": "Move down", "⧉": "Duplicate", "▶": "Play", "⏹": "Stop", "↺": "Put back to the default" };
@@ -3833,7 +3917,7 @@ function tabOverview() {
   const g = S.files.game;
   const wrap = h("div", {});
   wrap.append(h("h2", {}, "Game: " + (g.name || g.id)), h("p", { class: "lead" }, "A game pack is the content and rules of one game. Edit here, press Save, then bring it into the game's folder with the sync script (shown after each save). The game never needs the internet."));
-  wrap.append(h("h3", {}, "Identity"), row("Name", textField(g, "name", "game", { after: renderNav })), row("Id", textField(g, "id", "game")));
+  wrap.append(h("details", { class: "card", open: true }, h("summary", {}, "Identity"), row("Name", textField(g, "name", "game", { after: renderNav })), row("Id", textField(g, "id", "game"))));
   wrap.append(h("h3", {}, "Modules (mechanics this game uses)"));
   const mods = (g.modules = g.modules || {});
   const grid = h("div", { class: "mods" });
@@ -3932,10 +4016,12 @@ function kindForm(en, id) {
   const s = k.stats = k.stats || {};
   out.append(h("details", { class: "card", open: true }, h("summary", {}, "Body and numbers"),
     row("health", numField(s, "hp", f, { min: 1 })), row("speed", [numField(s, "speed", f, { min: 0 }), h("span", { class: "unit" }, "px/s")], "Base movement rate."), row("touch damage", numField(s, "damage", f, { min: 0 })),
-    row("body radius", [numField(s, "radius", f, { min: 4 }), h("span", { class: "unit" }, "px")]), row("xp", numField(s, "xp", f, { min: 0 })), row("freeze cap", numField(s, "freeze_cap", f, { integer: true, min: 1 }), "Freeze stacks before it hard-freezes."),
+    row("body radius", [numField(s, "radius", f, { min: 4 }), h("span", { class: "unit" }, "px")]), row("xp", numField(s, "xp", f, { min: 0 })), row("freeze cap", numField(s, "freeze_cap", f, { integer: true, min: 1 }), "Freeze stacks before it hard-freezes.")));
+  out.append(h("details", { class: "card", open: true }, h("summary", {}, "Look"),
     row("shape", selectField(k, "shape", f, C.silhouettes), "The placeholder silhouette (it also sizes the hitbox)."), row("art height", [numField(k, "art_height", f, { min: 20 }), h("span", { class: "unit" }, "px")]),
     row("puppet", selectField(k, "puppet", f, (S.files.puppets.puppets || []).filter(p => !p.startsWith("hero_")), { optional: true, emptyLabel: "(none: the plain shape)" })),
-    row("tint", colorField(k, "tint", f, { optional: true, after: re }), "Colours the puppet: a colour variant of a puppet other kinds share."), row("flat colour", colorField(s, "color", f, { after: re })),
+    row("tint", colorField(k, "tint", f, { optional: true, after: re }), "Colours the puppet: a colour variant of a puppet other kinds share."), row("flat colour", colorField(s, "color", f, { after: re }))));
+  out.append(h("details", { class: "card", open: true }, h("summary", {}, "Loot and flight"),
     row("loot odds x", numField(k, "drop_mult", f, { def: 1, optional: true, min: 0 })), row("star value", numField(k, "fame", f, { integer: true, def: 1, optional: true, min: 0 })), row("flies", boolField(k, "fly", f, { optional: true }), "Only walls stop it; the crowd neither shoves it nor blocks it.")));
   // awareness + movement
   const mv = k.move = k.move || {};
@@ -3990,7 +4076,7 @@ function spawnEditor(en) {
   const f = "enemies";
   const sp = en.spawn = en.spawn || {};
   const useWeights = Array.isArray(sp.weights) && sp.weights.length > 0;
-  const wrap = h("div", { class: "card" });
+  const wrap = h("div", { class: "card", style: "overflow-x:auto" });   // (the table scrolls on a phone instead of widening the page)
   const mode = h("select", {}, [["roll", "chance chain (the older way)"], ["weights", "weights (drawn in proportion)"]].map(([v, l]) => h("option", { value: v }, l)));
   mode.value = useWeights ? "weights" : "roll";
   mode.addEventListener("change", () => { if (mode.value === "weights") { sp.weights = sp.weights?.length ? sp.weights : [{ kind: sp.default || "grunt", weight: 1 }]; sp.roll = []; } else { sp.weights = []; } touch(f); renderMain(); });
@@ -4036,13 +4122,17 @@ function tabAbilities() {
   const form = h("div", {});
   if (a) {
     const users = (S.files.heroes.heroes || []).filter(x => x.ability === a.id).map(x => x.name || x.id);
-    form.append(problemBlock(problemsFor(f, a.id + ":")), row("id", [h("span", {}, a.id), h("span", { class: "unit" }, "(fixed: heroes refer to it)")]), row("name", textField(a, "name", f, { after: renderMain })),
-      row("kind", selectField(a, "kind", f, C.ability_kinds, { after: () => { for (const [k, d] of ABILITY_FIELDS[a.kind] || []) if (a[k] === undefined) a[k] = d; renderMain(); } })),
-      row("cooldown", [numField(a, "cooldown", f, { min: 0.05 }), h("span", { class: "unit" }, "s to recharge one use")]), row("charges", [numField(a, "charges", f, { integer: true, min: 1, def: 1, optional: true }), h("span", { class: "unit" }, "uses stored, recharged one at a time")]),
-      (ABILITY_FIELDS[a.kind] || []).map(([k, d, unit, req]) => row(k + (C.ability_required[a.kind].includes(k) ? " *" : ""), [numField(a, k, f, { def: d, optional: true, min: 0 }), h("span", { class: "unit" }, unit)], null, a[k] !== undefined)),
-      ["dash", "roll", "slam", "push_pulse"].includes(a.kind) ? row("damage type", selectField(a, "damage_type", f, C.damage_types, { optional: true, emptyLabel: "physical" }), "Used when it deals damage.") : null,
-      row("colour", colorField(a, "color", f, { after: renderMain })), row("description", textField(a, "desc", f, { optional: true })),
-      h("p", { class: "dim" }, users.length ? "Used by: " + users.join(", ") : "No hero uses this ability yet (unless it is the default rule)."), h("p", { class: "dim" }, "* required for this kind."));
+    form.append(problemBlock(problemsFor(f, a.id + ":")),
+      h("details", { class: "card", open: true }, h("summary", {}, "The basics"),
+        row("id", [h("span", {}, a.id), h("span", { class: "unit" }, "(fixed: heroes refer to it)")]), row("name", textField(a, "name", f, { after: renderMain })),
+        row("kind", selectField(a, "kind", f, C.ability_kinds, { after: () => { for (const [k, d] of ABILITY_FIELDS[a.kind] || []) if (a[k] === undefined) a[k] = d; renderMain(); } })),
+        row("colour", colorField(a, "color", f, { after: renderMain })), row("description", textField(a, "desc", f, { optional: true }))),
+      h("details", { class: "card", open: true }, h("summary", {}, "Use and numbers"),
+        row("cooldown", [numField(a, "cooldown", f, { min: 0.05 }), h("span", { class: "unit" }, "s to recharge one use")]), row("charges", [numField(a, "charges", f, { integer: true, min: 1, def: 1, optional: true }), h("span", { class: "unit" }, "uses stored")], "Recharged one at a time."),
+        (ABILITY_FIELDS[a.kind] || []).map(([k, d, unit, req]) => row(k + (C.ability_required[a.kind].includes(k) ? " *" : ""), [numField(a, k, f, { def: d, optional: true, min: 0 }), h("span", { class: "unit" }, unit)], null, a[k] !== undefined)),
+        ["dash", "roll", "slam", "push_pulse"].includes(a.kind) ? row("damage type", selectField(a, "damage_type", f, C.damage_types, { optional: true, emptyLabel: "physical" }), "Used when it deals damage.") : null,
+        h("p", { class: "dim" }, "* required for this kind.")),
+      h("p", { class: "dim" }, users.length ? "Used by: " + users.join(", ") : "No hero uses this ability yet (unless it is the default rule)."));
   } else form.append(h("p", { class: "lead" }, "No abilities yet."));
   wrap.append(h("div", { class: "split" }, list, form));
   return wrap;
@@ -4093,7 +4183,7 @@ function tabContent() {
   const cur = sel || (picks[0] ? { file, k: picks[0].k, i: picks[0].kind === "list" ? 0 : Object.keys(data[picks[0].k])[0], kind: picks[0].kind } : { file, k: "__other" });
   if (cur.k === "__other") {
     const sub = {}; for (const [k, v] of others) sub[k] = v;
-    editor.append(genericEditor(data, file, { only: others.map(o => o[0]) }));
+    editor.append(genericEditor(data, file, { only: others.map(o => o[0]), card: "Fields" }));
   } else {
     const container = cur.kind === "list" ? data[cur.k] : data[cur.k];
     const item = container[cur.i];
@@ -4101,7 +4191,7 @@ function tabContent() {
       editor.append(h("div", { class: "ctl", style: "margin-bottom:8px" }, h("b", {}, `${cur.k}[${cur.i}]`), h("span", { style: "flex:1" }),
         h("button", { class: "btn small", onclick: async () => { if (cur.kind === "list") { container.splice(cur.i + 1, 0, clone(item)); S.sel.item = { ...cur, i: cur.i + 1 }; } else { const n = slug(await ask("Key for the copy:") || ""); if (!n || container[n]) return; container[n] = clone(item); S.sel.item = { ...cur, i: n }; } touch(file); renderMain(); } }, "Copy"),
         h("button", { class: "btn small danger", onclick: async () => { if (!await sure("Delete this entry?")) return; if (cur.kind === "list") container.splice(cur.i, 1); else delete container[cur.i]; S.sel.item = null; touch(file); renderMain(); } }, "Delete")));
-      editor.append(genericEditor(item, file, { path: cur.k }));
+      editor.append(genericEditor(item, file, { path: cur.k, card: "Fields" }));
     }
     editor.append(h("button", { class: "btn small", style: "margin-top:10px", onclick: async () => { if (cur.kind === "list") { const proto = clone(container[container.length - 1] || {}); if (proto.id) proto.id = proto.id + "_2"; container.push(proto); S.sel.item = { ...cur, i: container.length - 1 }; } else { const n = slug(await ask("Key for the new entry:") || ""); if (!n || container[n]) return; container[n] = clone(Object.values(container)[0] || {}); S.sel.item = { ...cur, i: n }; } touch(file); renderMain(); } }, "+ Add " + (cur.kind === "list" ? "an entry" : "a keyed entry")));
   }
@@ -4111,7 +4201,7 @@ function tabContent() {
 
 // the recursive editor: objects, lists, numbers, text, switches; known keys get pickers
 function genericEditor(value, file, o = {}) {
-  const wrap = h("div", {});
+  const wrap = o.card ? h("details", { class: "card", open: true }, h("summary", {}, o.card)) : h("div", {});
   const re = () => renderMain();
   if (isObjV(value)) {
     for (const [k, v] of Object.entries(value)) {
