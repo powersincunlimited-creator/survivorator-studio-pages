@@ -1083,7 +1083,7 @@ const TP_ACRONYMS = { hp: "HP", xp: "XP", ui: "UI", id: "ID", ids: "IDs", dot: "
 const TP_SKIP = "code, pre, kbd, textarea, script, style, svg, canvas, [data-nopolish]";
 /* [selector, kind]: key = a field or module name; title = a heading, button or option; sentence = a description; unit = a short note after a field */
 const TP_RULES = [
-  [".row > label, label, legend, .nm, .mod-name, .prm .nm, .lbl, .kv > b", "key"],
+  [".row > label, label, legend, .fl, .nm, .mod-name, .prm .nm, .lbl, .kv > b", "key"],
   ["h2, h3, h1 small, summary, th, .part-type, .sub, .grp, .sec, .used-by, .pal-swatch, .ty, #puppetDlg td:first-child", "title"],
   ["button, .btn, option, .tag, .chip", "title"],
   [".hint, p.lead, p.dim, .lead, .toast, .mod-desc, .mod-needs, .ds, .pill, #statusText, #editHint, #hintBar, .parts-hint, .help, .mf, .dim, small, .dlg p, .drop-text", "sentence"],

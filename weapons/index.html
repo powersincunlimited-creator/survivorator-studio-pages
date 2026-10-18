@@ -262,6 +262,42 @@
     font-family:var(--font-mono); font-size:10.5px}
   .part-row-controls select{flex:1; min-width:0; background:var(--panel); color:var(--text); border:1px solid var(--hair); border-radius:5px; padding:3px 4px; font-size:11px}
   .part-row-controls .chk{display:flex; align-items:center; gap:4px; font-family:var(--font-mono); font-size:10px; color:var(--text-dim); width:auto}
+  /* the grouped inspector: collapsible sections, each a two-column grid (short controls side by side; buttons, sliders and notes span both) */
+  aside{container-type:inline-size}
+  .parts-head{flex-wrap:wrap; gap:6px}
+  .parts-head-add{flex-wrap:wrap}
+  .part-type{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .part-row-top{gap:5px}
+  .part-row-top .part-dup{padding:2px 5px}
+  .part-row-top{margin-bottom:0}
+  .part-row.open .part-row-top{margin-bottom:6px}
+  .isec{border:1px solid var(--hair); border-radius:6px; margin-top:6px; background:rgba(255,255,255,0.012)}
+  .isec > summary{list-style:none; cursor:pointer; padding:4px 8px; font-family:var(--font-mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--cyan-dim); display:flex; align-items:center; gap:6px; user-select:none}
+  .isec > summary::-webkit-details-marker{display:none}
+  .isec > summary::before{content:"\25B8"; font-size:9px; transition:transform .12s}
+  .isec[open] > summary::before{transform:rotate(90deg)}
+  .isec[open] > summary{border-bottom:1px solid var(--hair-soft)}
+  .ig{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:6px 8px; padding:7px 8px 8px; align-items:end}
+  .ig > .f{display:grid; gap:2px; min-width:0}
+  .ig > .f.w2{grid-column:1 / -1}
+  .ig > .f > *{min-width:0; max-width:100%}
+  .ig .sl{min-width:0; width:100%}
+  .ig .sl input[type=range]{width:100%; flex:1 1 0}
+  .ig .chk span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .ig .fl{font-family:var(--font-mono); font-size:9.5px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.05em}
+  .ig input[type=number], .ig input[type=text], .ig select{width:100%; min-width:0; background:var(--panel); color:var(--text); border:1px solid var(--hair); border-radius:5px; padding:3px 5px; font-family:var(--font-mono); font-size:10.5px}
+  .ig input[type=color]{width:100%; height:24px; padding:0; border:1px solid var(--hair); border-radius:4px; background:none}
+  .ig .sl{display:flex; align-items:center; gap:6px}
+  .ig .sl input[type=range]{flex:1; min-width:0}
+  .ig .sl .val{font-family:var(--font-mono); font-size:10px; color:var(--text-dim); width:34px; text-align:right; flex:none}
+  .ig .btns{display:flex; flex-wrap:wrap; gap:4px}
+  .ig .btns .btn{padding:3px 7px; font-size:11px}
+  .ig .btns.q{display:grid; grid-template-columns:repeat(2, minmax(0,1fr))}
+  .ig .chk{display:flex; align-items:center; gap:5px; font-family:var(--font-mono); font-size:10.5px; color:var(--text-dim)}
+  .ig .pair{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:4px; align-items:center}
+  .ig .bindrow{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:4px}
+  .meta-panel{display:block; padding:0 10px 6px; max-height:40vh; overflow-y:auto}
+  @container (max-width:230px){ .ig, .ig .pair, .ig .bindrow{grid-template-columns:minmax(0,1fr)} }
   .muzzle-mark{stroke:var(--warn); stroke-width:.35; fill:none; pointer-events:none}
   .muzzle-label{fill:var(--warn); font-family:var(--font-mono); text-anchor:middle; pointer-events:none}
 
@@ -373,6 +409,7 @@
             <button class="btn" id="btnShowAll" hidden title="Show every part you have hidden (editing view only)">Show all</button>
             <button class="btn" id="btnAddPart">+ Part</button>
             <button class="btn" id="btnAddPicture" title="A hand-drawn picture from the library as a new part (weapons and shots)">+ Picture…</button>
+            <button class="btn" id="btnOpenAll" title="Show the controls of every part, not only the selected one">Open all</button>
           </div>
         </div>
         <div class="meta-panel" id="metaPanel"></div>
@@ -811,7 +848,7 @@ const TP_ACRONYMS = { hp: "HP", xp: "XP", ui: "UI", id: "ID", ids: "IDs", dot: "
 const TP_SKIP = "code, pre, kbd, textarea, script, style, svg, canvas, [data-nopolish]";
 /* [selector, kind]: key = a field or module name; title = a heading, button or option; sentence = a description; unit = a short note after a field */
 const TP_RULES = [
-  [".row > label, label, legend, .nm, .mod-name, .prm .nm, .lbl, .kv > b", "key"],
+  [".row > label, label, legend, .fl, .nm, .mod-name, .prm .nm, .lbl, .kv > b", "key"],
   ["h2, h3, h1 small, summary, th, .part-type, .sub, .grp, .sec, .used-by, .pal-swatch, .ty, #puppetDlg td:first-child", "title"],
   ["button, .btn, option, .tag, .chip", "title"],
   [".hint, p.lead, p.dim, .lead, .toast, .mod-desc, .mod-needs, .ds, .pill, #statusText, #editHint, #hintBar, .parts-hint, .help, .mf, .dim, small, .dlg p, .drop-text", "sentence"],
@@ -2800,38 +2837,62 @@ partsList.addEventListener('pointerup', ev => {
   saveNow();
 });
 
-function fxNum(role, label, val, step, title){
-  return `<label title="${title || ''}">${label}</label><input type="number" step="${step}" data-role="${role}" value="${val}">`;
+/* ---------- grouped-inspector builders (strings for a part row; DOM for the shape settings) ---------- */
+let openAllParts = false;
+const wsOpen = {};   // which sections are open, by title (remembered across the rebuilds; shape settings are keyed "m:title")
+const wsF = (label, inner, wide, title) => `<div class="f${wide ? ' w2' : ''}"${title ? ` title="${title}"` : ''}><div class="fl">${label}</div>${inner}</div>`;
+const wsSec = (title, body, closed) => `<details class="isec" data-sec="${title}"${(wsOpen[title] === undefined ? !closed : wsOpen[title]) ? ' open' : ''}><summary>${title}</summary><div class="ig">${body}</div></details>`;
+const wsSlider = (role, min, max, step, value, valText, title) => `<div class="sl"><input type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-role="${role}"${title ? ` title="${title}"` : ''}><span class="val">${valText}</span></div>`;
+const fxIn = (role, val, step) => `<input type="number" step="${step}" data-role="${role}" value="${val}">`;
+function mSection(box, title, closed){
+  const key = 'm:' + title, d = document.createElement('details'); d.className = 'isec'; d.open = wsOpen[key] === undefined ? !closed : wsOpen[key];
+  const s = document.createElement('summary'); s.textContent = title; d.appendChild(s);
+  const g = document.createElement('div'); g.className = 'ig'; d.appendChild(g);
+  d.addEventListener('toggle', () => { wsOpen[key] = d.open; });
+  box.appendChild(d); return g;
+}
+function mCell(g, label, inner, wide, title){
+  const f = document.createElement('div'); f.className = 'f' + (wide ? ' w2' : ''); if(title) f.title = title;
+  const l = document.createElement('div'); l.className = 'fl'; l.textContent = label; f.appendChild(l); f.appendChild(inner); g.appendChild(f); return f;
+}
+/* one number of the shape's settings (meta): empty = not set; it redraws and saves as you type */
+function mNumber(g, key, label, step, def, title){
+  const inp = document.createElement('input'); inp.type = 'number'; inp.step = step; inp.value = meta[key] == null ? (def == null ? '' : def) : meta[key];
+  inp.addEventListener('input', e => { if(e.target.value === '') delete meta[key]; else meta[key] = +e.target.value; renderStage(); scheduleSave(); });
+  inp.addEventListener('change', saveNow);
+  mCell(g, label, inp, false, title); return inp;
 }
 function bindRowHtml(part, key, label){
   const b = part[key], g = (o, k, d) => (o && o[k] != null) ? o[k] : d;
-  const inp = 'width:78px;background:var(--panel);border:1px solid var(--hair);border-radius:5px;color:var(--text);padding:3px 5px;font-family:var(--font-mono);font-size:10.5px';
-  return `<div class="fx-row"><label title="drive a property from a number the game feeds in (aim, recoil, closeness ...): property = k0 + k x value">${label}</label>
-      <input type="text" data-role="${key}param" style="${inp}" placeholder="none" value="${b ? (b.param || '') : ''}">
-      <select data-role="${key}prop">${['rot','x','y','scale','sx','sy','alpha'].map(k => `<option ${b && b.prop === k ? 'selected' : ''}>${k}</option>`).join('')}</select>
-      ${b && b.param ? fxNum(key+'k','k',g(b,'k',1),0.1,'how much of the value is added / multiplied') + fxNum(key+'k0','k0',g(b,'k0',(['rot','x','y'].includes(b.prop) ? 0 : 1)),0.1,'the value at 0 (rot / x / y start at 0, scale / alpha at 1)') : ''}</div>`;
+  const kk = b && b.param ? fxIn(key + 'k', g(b, 'k', 1), 0.1) + fxIn(key + 'k0', g(b, 'k0', (['rot', 'x', 'y'].includes(b.prop) ? 0 : 1)), 0.1) : '';
+  return wsF(label, `<div class="bindrow"><input type="text" data-role="${key}param" placeholder="none" value="${b ? (b.param || '') : ''}" title="The number the game feeds in (aim, recoil, closeness ...)">
+      <select data-role="${key}prop" title="The property it drives: property = k0 + k x value">${['rot', 'x', 'y', 'scale', 'sx', 'sy', 'alpha'].map(k => `<option ${b && b.prop === k ? 'selected' : ''}>${k}</option>`).join('')}</select>${kk}</div>`, true,
+    'Drive a property from a number the game feeds in (aim, recoil, closeness ...): property = k0 + k x value. k is how much of the value is added or multiplied; k0 is the value at 0 (rot, x and y start at 0, scale and alpha at 1).');
 }
 function fxBlockHtml(part){
   const f = part.fx, r = part.ring, pm = part.pal_mix == null ? 1 : part.pal_mix;
   const g = (o, k, d) => (o && o[k] != null) ? o[k] : d;
-  return `<details class="fx-box" ${f || r || part.pal || part.rand_rot ? 'open' : ''}><summary>effect timing, repeat, palette</summary>
-    <div class="fx-row"><label class="chk" style="display:flex;gap:4px;align-items:center"><input type="checkbox" data-role="fxon" ${f ? 'checked' : ''}> timeline (what it does over the effect's life)</label></div>
-    ${f ? `
-    <div class="fx-row">${fxNum('fx-delay','delay',g(f,'delay',0),0.01,'seconds before it starts')}${fxNum('fx-dur','dur',g(f,'dur',0.2),0.01,'seconds the scale / drift / spin take')}
-      <select data-role="fx-ease" title="how the scale / drift / spin ease">${Object.keys(EASES).map(k => `<option ${g(f,'ease','linear')===k?'selected':''}>${k}</option>`).join('')}</select></div>
-    <div class="fx-row">${fxNum('fx-s0','scale',g(f,'s0',1),0.05,'scale at the start')}${fxNum('fx-s1','&rarr;',g(f,'s1',1),0.05,'scale at the end')}
-      ${fxNum('fx-a0','alpha',g(f,'a0',1),0.05,'alpha multiplier at the start')}${fxNum('fx-a1','&rarr;',g(f,'a1',1),0.05,'alpha multiplier at the end')}</div>
-    <div class="fx-row">${fxNum('fx-adur','fade',g(f,'adur',g(f,'dur',0.2)),0.01,'seconds the fade takes')}${fxNum('fx-adelay','after',g(f,'adelay',0),0.01,'seconds the fade waits after the delay')}</div>
-    <div class="fx-row">${fxNum('fx-dx','drift x',g(f,'dx',0),1,'moves this far along the part\'s own +x (outward for a ring copy)')}${fxNum('fx-dy','y',g(f,'dy',0),1,'along its own +y')}${fxNum('fx-spin','spin&deg;',g(f,'spin',0),5,'degrees turned over dur')}</div>` : ''}
-    <div class="fx-row">${fxNum('ring-count','repeat',g(r,'count',1),1,'copies round the centre (1 = none)')}${fxNum('ring-jitter','jitter&deg;',g(r,'jitter',0),1,'random turn on each copy')}${fxNum('ring-dist_jitter','spread',g(r,'dist_jitter',0),0.05,'random spread of each copy\'s drift (0..1)')}</div>
-    <div class="fx-row"><label title="only drawn while the game's flags say so: names separated by commas, ! in front = while NOT set (a mine's light: armed, !lit)">shown when</label><input type="text" data-role="when" style="width:128px;background:var(--panel);border:1px solid var(--hair);border-radius:5px;color:var(--text);padding:3px 5px;font-family:var(--font-mono);font-size:10.5px" placeholder="always" value="${whenList(part).join(', ')}"></div>
-    ${bindRowHtml(part, 'bind', 'driven by')}
-    ${bindRowHtml(part, 'bind2', 'and by')}
-    <div class="fx-row"><label>colour from</label><select data-role="pal"><option value="">its own</option>${['a','b','c'].map(k => `<option value="${k}" ${part.pal===k?'selected':''}>palette ${k}</option>`).join('')}</select>
-      ${part.pal ? fxNum('pal_mix','mix',pm,0.05,'0 = the part\'s own colour, 1 = the palette colour') : ''}
-      ${fxNum('pal_shade','shade',part.pal_shade == null ? 1 : part.pal_shade,0.05,'darken (below 1) or lighten toward white (above 1) the colour, like the game\'s Vfx.shade')}
-      <label class="chk" style="display:flex;gap:4px;align-items:center" title="turn to a random angle each time it plays"><input type="checkbox" data-role="randrot" ${part.rand_rot ? 'checked' : ''}> random turn</label></div>
-  </details>`;
+  let timing = wsF('Timeline', `<label class="chk"><input type="checkbox" data-role="fxon" ${f ? 'checked' : ''}> <span>what it does over the effect's life</span></label>`, true);
+  if(f) timing += wsF('Delay (s)', fxIn('fx-delay', g(f, 'delay', 0), 0.01), false, 'Seconds before it starts')
+    + wsF('Duration (s)', fxIn('fx-dur', g(f, 'dur', 0.2), 0.01), false, 'Seconds the scale, drift and spin take')
+    + wsF('Easing', `<select data-role="fx-ease" title="How the scale, drift and spin ease">${Object.keys(EASES).map(k => `<option ${g(f, 'ease', 'linear') === k ? 'selected' : ''}>${k}</option>`).join('')}</select>`)
+    + wsF('Fade (s)', fxIn('fx-adur', g(f, 'adur', g(f, 'dur', 0.2)), 0.01), false, 'Seconds the fade takes')
+    + wsF('Fade after (s)', fxIn('fx-adelay', g(f, 'adelay', 0), 0.01), false, 'Seconds the fade waits after the delay');
+  let out = wsSec('Effect timing', timing);
+  if(f) out += wsSec('Size, fade and drift',
+    wsF('Scale from', fxIn('fx-s0', g(f, 's0', 1), 0.05), false, 'Scale at the start') + wsF('Scale to', fxIn('fx-s1', g(f, 's1', 1), 0.05), false, 'Scale at the end')
+    + wsF('Alpha from', fxIn('fx-a0', g(f, 'a0', 1), 0.05), false, 'Alpha multiplier at the start') + wsF('Alpha to', fxIn('fx-a1', g(f, 'a1', 1), 0.05), false, 'Alpha multiplier at the end')
+    + wsF('Drift x', fxIn('fx-dx', g(f, 'dx', 0), 1), false, 'Moves this far along the part\'s own +x (outward for a ring copy)') + wsF('Drift y', fxIn('fx-dy', g(f, 'dy', 0), 1), false, 'Along its own +y')
+    + wsF('Spin °', fxIn('fx-spin', g(f, 'spin', 0), 5), false, 'Degrees turned over the duration'));
+  out += wsSec('Repeat', wsF('Copies', fxIn('ring-count', g(r, 'count', 1), 1), false, 'Copies round the centre (1 = none)') + wsF('Jitter °', fxIn('ring-jitter', g(r, 'jitter', 0), 1), false, 'Random turn on each copy')
+    + wsF('Spread', fxIn('ring-dist_jitter', g(r, 'dist_jitter', 0), 0.05), false, 'Random spread of each copy\'s drift (0 to 1)'), !r);
+  out += wsSec('State', wsF('Shown when', `<input type="text" data-role="when" placeholder="always" value="${whenList(part).join(', ')}">`, true, 'Only drawn while the game\'s flags say so: names separated by commas, ! in front = while NOT set (a mine\'s light: armed, !lit)')
+    + bindRowHtml(part, 'bind', 'Driven by') + bindRowHtml(part, 'bind2', 'And by'), !(whenList(part).length || part.bind || part.bind2));
+  out += wsSec('Palette', wsF('Colour from', `<select data-role="pal"><option value="">its own</option>${['a', 'b', 'c'].map(k => `<option value="${k}" ${part.pal === k ? 'selected' : ''}>palette ${k}</option>`).join('')}</select>`)
+    + (part.pal ? wsF('Mix', fxIn('pal_mix', pm, 0.05), false, '0 = the part\'s own colour, 1 = the palette colour') : '')
+    + wsF('Shade', fxIn('pal_shade', part.pal_shade == null ? 1 : part.pal_shade, 0.05), false, 'Darken (below 1) or lighten toward white (above 1) the colour, like the game\'s Vfx.shade')
+    + wsF('Random turn', `<label class="chk" title="Turn to a random angle each time it plays"><input type="checkbox" data-role="randrot" ${part.rand_rot ? 'checked' : ''}> <span>each time it plays</span></label>`), !(part.pal || part.rand_rot || part.pal_shade != null));
+  return out;
 }
 function wireFxBlock(row, part){
   const q = role => row.querySelector('[data-role='+role+']');
@@ -2881,81 +2942,57 @@ function renderParts(){
   { const sa = document.getElementById('btnShowAll'); if(sa) sa.hidden = !parts.some(pt => pt._hidden); }
   parts.forEach((part, pi) => {
     const row = document.createElement('div');
-    row.className = 'part-row' + (part._hidden ? ' hid' : '') + (pi===activePart ? ' active' : '') + (rowDragging && rowDragging.fromIndex===pi ? ' row-dragging' : '');
+    const expanded = pi === activePart || openAllParts;
+    row.className = 'part-row' + (expanded ? ' open' : '') + (part._hidden ? ' hid' : '') + (pi===activePart ? ' active' : '') + (rowDragging && rowDragging.fromIndex===pi ? ' row-dragging' : '');
     const hex = part.color.slice(0,7);
     const alpha = parseInt(part.color.slice(7,9)||'ff', 16);
     const curScale = (part.scale && part.scale[0]) || 1;
+    const ns = current && current.ns, isFx = ns === 'effects';
+    let body = '';
+    if(expanded){
+      // Picture: the picture itself (picture parts only)
+      if(part.img) body += wsSec('Picture', `<div class="btns q w2" style="grid-column:1 / -1">
+          <button class="btn" data-role="imgrep" title="Use another picture from the library">Replace…</button>
+          <button class="btn" data-role="imgedit" title="Cut / edit the picture itself (it changes everywhere it is used)">Cut…</button>
+          <button class="btn" data-role="imgfit" title="Give the part the picture's own shape (keeps its width)">Match shape</button>
+          <button class="btn" data-role="imgframes" title="This picture is a sheet of frames (a grid): say how many, and how they play">Frames…</button></div>`
+        + (imgIsSheet(part.img) ? wsF('Frame shown here', wsSlider('imgframe', 0, imgFrameCount(part.img) - 1, 1, Math.min(part._frame || 0, imgFrameCount(part.img) - 1), (part._frame || 0) + 1 + '/' + imgFrameCount(part.img), `Which frame to show while editing (the preview plays them: ${part.img.mode || 'loop'} at ${part.img.fps === undefined ? 12 : part.img.fps}/s)`), true) : ''));
+      // Look: colour, alpha, glow, tints and the outline
+      let look = wsF('Colour', `<div class="btns"><button class="btn" data-role="colcopy" title="Remember this part's colour">Copy</button>
+          <button class="btn" data-role="colpaste" ${colourClip ? '' : 'disabled'} title="${colourClip ? 'Apply the copied colour ('+colourClip+') to this part (its own alpha is kept)' : 'Copy a colour first'}" ${colourClip ? 'style="border-left:8px solid '+colourClip+'"' : ''}>Paste</button>
+          <button class="btn" data-role="colpick" title="Eyedropper: then click any part on the canvas to take its colour">Pick</button></div>`, true);
+      look += wsF('Alpha', wsSlider('alpha', 0, 255, 1, alpha, alpha));
+      look += wsF('Glow', `<label class="chk" title="Draw this part additively (a glow): it brightens what is behind it"><input type="checkbox" data-role="blend" ${part.blend==='add'?'checked':''}> <span>add light</span></label>`);
+      if(part.type === 'line') look += wsF('Width', wsSlider('width', 0.2, 6, 0.1, part.width||1, (part.width||1).toFixed(1)), true);
+      if(ns === 'projectiles') look += wsF('School tint', `<label class="chk" title="Tint this part toward the shot's damage-school colour in the game (the default bullet does this for its brass body)"><input type="checkbox" data-role="school" ${part.school?'checked':''}> <span>damage colour</span></label>`);
+      if(!isFx) look += wsF('Outline', `<label class="chk" title="Draw a dark outline around this part, behind its fill (glow parts are never outlined). Thickness is in drawing units, on each side."><input type="checkbox" data-role="outline" ${part.outline?'checked':''}> <span>draw outline</span></label>`)
+        + wsF('Thickness', `<input type="number" step="0.1" min="0" data-role="ow" value="${part.ow==null?0.6:part.ow}" title="Outline thickness (each side)" ${part.outline?'':'disabled'}>`)
+        + wsF('Line colour', `<input type="color" data-role="oc" value="${(part.oc||'#05050dff').slice(0,7)}" title="Outline colour" ${part.outline?'':'disabled'}>`);
+      body += wsSec('Look', look);
+      // Transform: scale, rotation, flip and the turning steps
+      body += wsSec('Transform',
+        wsF('Scale', wsSlider('scale', 0.1, 3, 0.05, curScale, curScale.toFixed(2) + '×', 'Uniform scale of this part\'s whole shape (about its own anchor, not the point coordinates)'), true)
+        + wsF('Rotation °', `<input type="number" step="1" data-role="rotdeg" value="${Math.round((part.rot||0)*57.29578*10)/10}" title="This part's own rotation in degrees (about its origin)">`)
+        + wsF('Flip', `<div class="btns"><button class="btn" data-role="fliph" title="Mirror this part left-right about its centre">&#8596;</button><button class="btn" data-role="flipv" title="Mirror this part top-bottom about its centre">&#8597;</button></div>`)
+        + wsF('Turn about its centre', `<div class="btns"><button class="btn" data-role="rotl90" title="Rotate this part 90 degrees anticlockwise about its centre">&#8634;90</button><button class="btn" data-role="rotl15" title="15 degrees anticlockwise">&#8634;15</button><button class="btn" data-role="rotr15" title="15 degrees clockwise">&#8635;15</button><button class="btn" data-role="rotr90" title="Rotate this part 90 degrees clockwise about its centre">&#8635;90</button></div>`, true));
+      // Motion: a looping motion for the part
+      const hasAnim = part.anim && part.anim.kind;
+      body += wsSec('Motion', wsF('Motion', `<select data-role="animkind" title="A looping motion for this part. Use Motion in the toolbar to preview it."><option value="">none</option>${ANIM_KINDS.map(k => `<option value="${k}" ${part.anim && part.anim.kind===k ? 'selected' : ''}>${k}</option>`).join('')}</select>`)
+        + (hasAnim ? wsF('Rate', `<input type="number" step="0.1" data-role="animrate" value="${part.anim.rate==null?1:part.anim.rate}" title="Turns / loops / cycles per second">`)
+          + wsF('Amount', `<input type="number" step="0.05" data-role="animamp" value="${part.anim.amp==null?0.3:part.anim.amp}" title="How far / how much (units, or a fraction for pulse and flicker)">`)
+          + wsF('Phase', `<input type="number" step="0.05" data-role="animphase" value="${part.anim.phase||0}" title="Start offset, 0 to 1 of a cycle">`) : ''), !hasAnim);
+      if(isFx) body += fxBlockHtml(part);
+    }
     row.innerHTML = `
       <div class="part-row-top">
         <span class="part-drag-handle" data-role="drag" title="Drag to reorder (front/back)">&#8942;&#8942;</span>
         <div class="swatch"><input type="color" value="${hex}" data-role="hex"></div>
-        <div class="part-type">${part.img ? '\u{1F5BC} ' + part.img.file + (imgIsSheet(part.img) ? ' \u00b7 ' + imgFrameCount(part.img) + ' frames' : '') : part.type + ' · ' + part.points.length + 'pt'}${part.type==='polygon' && !part.img && crossingsOf(part.points).length ? ' <span style="color:#ff3b5c" title="This polygon crosses itself: the game cannot draw it (the part vanishes)">\u26a0 crosses</span>' : ''}</div>
-        <button class="part-eye${part._hidden ? ' off' : ''}" data-role="eye" title="${part._hidden ? 'Hidden while editing (this view only, nothing is saved). Click to show.' : 'Hide this part while editing (this view only, nothing is saved)'}">${part._hidden ? '\u25cc' : '\u25c9'}</button>
+        <div class="part-type" title="${part.img ? part.img.file : part.type}">${part.img ? '\u{1F5BC} ' + part.img.file + (imgIsSheet(part.img) ? ' · ' + imgFrameCount(part.img) + ' frames' : '') : part.type + ' · ' + part.points.length + 'pt'}${part.type==='polygon' && !part.img && crossingsOf(part.points).length ? ' <span style="color:#ff3b5c" title="This polygon crosses itself: the game cannot draw it (the part vanishes)">⚠ crosses</span>' : ''}</div>
+        <button class="part-eye${part._hidden ? ' off' : ''}" data-role="eye" title="${part._hidden ? 'Hidden while editing (this view only, nothing is saved). Click to show.' : 'Hide this part while editing (this view only, nothing is saved)'}">${part._hidden ? '◌' : '◉'}</button>
+        ${part.img ? '' : `<button class="part-dup" data-role="toggleverts" title="Vertex handles only ever show on the active part anyway. This also hides them WHEN it is active, so a dense point ring (a Circle preset, say) does not blanket the shape and leave nothing else to grab for dragging">${part._hideVerts ? '○ pts' : '● pts'}</button>`}
         <button class="part-dup" title="Duplicate part" data-role="dup">Dup</button>
         <button class="part-del" title="Delete part" data-role="del">&times;</button>
-      </div>
-      ${part.img ? `<div class="part-tools"><span class="lbl">picture</span>
-        <button class="btn" data-role="imgrep" title="Use another picture from the library">Replace…</button>
-        <button class="btn" data-role="imgedit" title="Cut / edit the picture itself (it changes everywhere it is used)">Cut…</button>
-        <button class="btn" data-role="imgfit" title="Give the part the picture's own shape (keeps its width)">Match shape</button>
-        <button class="btn" data-role="imgframes" title="This picture is a sheet of frames (a grid): say how many, and how they play">Frames…</button></div>
-      ${part.img && imgIsSheet(part.img) ? `<div class="part-row-controls"><label>frame</label>
-        <input type="range" min="0" max="${imgFrameCount(part.img) - 1}" step="1" value="${Math.min(part._frame || 0, imgFrameCount(part.img) - 1)}" data-role="imgframe" title="Which frame to show while editing (the preview plays them: ${part.img.mode || 'loop'} at ${part.img.fps === undefined ? 12 : part.img.fps}/s)">
-        <span class="val">${(part._frame || 0) + 1}/${imgFrameCount(part.img)}</span></div>` : ''}` : ''}
-      <div class="part-row-controls"${part.img ? ' hidden' : ''}>
-        <button class="verts-toggle-btn" data-role="toggleverts" title="Vertex handles only ever show on the active part anyway — this just also hides them WHEN it's active, so a dense point ring (a Circle preset, say) doesn't blanket the shape and leave nothing else to grab for dragging">
-          ${part._hideVerts ? '○ Points hidden — tap to show' : '● Points shown — tap to hide'}
-        </button>
-      </div>
-      <div class="part-row-controls">
-        <label>alpha</label>
-        <input type="range" min="0" max="255" value="${alpha}" data-role="alpha">
-        <span class="val">${alpha}</span>
-      </div>
-      <div class="part-row-controls">
-        <label>scale</label>
-        <input type="range" min="0.1" max="3" step="0.05" value="${curScale}" data-role="scale"
-          title="Uniform scale of this part's whole shape (about its own anchor, not the point coordinates)">
-        <span class="val">${curScale.toFixed(2)}&times;</span>
-      </div>
-      ${part.type==='line' ? `<div class="part-row-controls"><label>width</label>
-        <input type="range" min="0.2" max="6" step="0.1" value="${part.width||1}" data-role="width">
-        <span class="val">${(part.width||1).toFixed(1)}</span></div>` : ''}
-      <div class="part-tools"><span class="lbl">colour</span>
-        <button class="btn" data-role="colcopy" title="Remember this part's colour">Copy</button>
-        <button class="btn" data-role="colpaste" ${colourClip ? '' : 'disabled'} title="${colourClip ? 'Apply the copied colour ('+colourClip+') to this part (its own alpha is kept)' : 'Copy a colour first'}" ${colourClip ? 'style="border-left:8px solid '+colourClip+'"' : ''}>Paste</button>
-        <button class="btn" data-role="colpick" title="Eyedropper: then click any part on the canvas to take its colour">Pick</button>
-      </div>
-      <div class="part-tools"><span class="lbl">rotate</span>
-        <button class="btn" data-role="rotl90" title="Rotate this part 90 degrees anticlockwise about its centre">&#8634;90</button>
-        <button class="btn" data-role="rotl15" title="15 degrees anticlockwise">&#8634;15</button>
-        <button class="btn" data-role="rotr15" title="15 degrees clockwise">&#8635;15</button>
-        <button class="btn" data-role="rotr90" title="Rotate this part 90 degrees clockwise about its centre">&#8635;90</button>
-        <input type="number" step="1" data-role="rotdeg" value="${Math.round((part.rot||0)*57.29578*10)/10}" title="This part's own rotation in degrees (about its origin)">&deg;
-      </div>
-      <div class="part-tools"><span class="lbl">flip</span>
-        <button class="btn" data-role="fliph" title="Mirror this part left-right about its centre">&#8596; Flip</button>
-        <button class="btn" data-role="flipv" title="Mirror this part top-bottom about its centre">&#8597; Flip</button>
-        <label class="chk" title="Draw this part additively (a glow): it brightens what is behind it"><input type="checkbox" data-role="blend" ${part.blend==='add'?'checked':''}> glow</label>
-        ${current && current.ns==='projectiles' ? `<label class="chk" title="Tint this part toward the shot's damage-school colour in the game (the default bullet does this for its brass body)"><input type="checkbox" data-role="school" ${part.school?'checked':''}> school tint</label>` : ''}
-      </div>
-      ${current && current.ns!=='effects' ? `<div class="part-tools"><label class="chk" title="Draw a dark outline around this part, behind its fill (glow parts are never outlined). Thickness is in drawing units, on each side."><input type="checkbox" data-role="outline" ${part.outline?'checked':''}> outline</label>
-        <input type="number" step="0.1" min="0" data-role="ow" value="${part.ow==null?0.6:part.ow}" title="Outline thickness (each side)" ${part.outline?'':'disabled'} style="width:56px">
-        <input type="color" data-role="oc" value="${(part.oc||'#05050dff').slice(0,7)}" title="Outline colour" ${part.outline?'':'disabled'}></div>` : ''}
-      <div class="part-row-controls"><label>motion</label>
-        <select data-role="animkind" title="A looping motion for this part. Use Motion in the toolbar to preview it.">
-          <option value="">none</option>
-          ${ANIM_KINDS.map(k => `<option value="${k}" ${part.anim && part.anim.kind===k ? 'selected' : ''}>${k}</option>`).join('')}
-        </select>
-      </div>
-      ${current && current.ns==='effects' ? fxBlockHtml(part) : ''}
-      ${part.anim && part.anim.kind ? `<div class="part-row-controls"><label>rate</label>
-        <input type="number" step="0.1" data-role="animrate" value="${part.anim.rate==null?1:part.anim.rate}" title="turns / loops / cycles per second">
-        <label style="width:26px">amt</label>
-        <input type="number" step="0.05" data-role="animamp" value="${part.anim.amp==null?0.3:part.anim.amp}" title="how far / how much (units, or a fraction for pulse and flicker)">
-        <label style="width:26px">ph</label>
-        <input type="number" step="0.05" data-role="animphase" value="${part.anim.phase||0}" title="start offset, 0..1 of a cycle"></div>` : ''}
-    `;
+      </div>${body}`;
     row.querySelector('[data-role=drag]').addEventListener('pointerdown', e=>{
       e.stopPropagation();
       activePart = pi; activeVert = -1;
@@ -2964,7 +3001,7 @@ function renderParts(){
       renderStage(); renderParts();
     });
     row.addEventListener('click', (e)=>{
-      if(e.target.closest('[data-role]')) return;
+      if(e.target.closest('[data-role]') || e.target.closest('summary')) return;
       activePart = pi; activeVert = -1;
       document.getElementById('btnDelPoint').disabled = true;
       renderStage(); renderParts();
@@ -2976,94 +3013,13 @@ function renderParts(){
     });
     row.querySelector('[data-role=hex]').addEventListener('change', saveNow);
     row.querySelector('[data-role=eye]').addEventListener('click', e=>{ e.stopPropagation(); if(part._hidden) delete part._hidden; else part._hidden = true; renderStage(); renderParts(); });
-    row.querySelector('[data-role=colcopy]').addEventListener('click', e=>{ e.stopPropagation(); colourClip = part.color.slice(0,7); renderParts(); });
-    row.querySelector('[data-role=colpaste]').addEventListener('click', e=>{ e.stopPropagation(); if(!colourClip) return; part.color = colourClip + part.color.slice(7,9); renderStage(); renderParts(); saveNow(); });
-    row.querySelector('[data-role=colpick]').addEventListener('click', e=>{ e.stopPropagation(); pickingColour = pi; stage.classList.add('pick'); });
-    row.querySelector('[data-role=toggleverts]').addEventListener('click', e=>{
+    const tv = row.querySelector('[data-role=toggleverts]');
+    if(tv) tv.addEventListener('click', e=>{
       e.stopPropagation();
       part._hideVerts = !part._hideVerts;
       if(part._hideVerts && activePart === pi) activeVert = -1;
       renderStage(); renderParts();
     });
-    row.querySelector('[data-role=alpha]').addEventListener('input', e=>{
-      const v = (+e.target.value).toString(16).padStart(2,'0');
-      part.color = part.color.slice(0,7) + v;
-      e.target.nextElementSibling.textContent = e.target.value;
-      renderStage(); scheduleSave();
-    });
-    row.querySelector('[data-role=alpha]').addEventListener('change', saveNow);
-    row.querySelector('[data-role=scale]').addEventListener('input', e=>{
-      const v = +e.target.value;
-      part.scale = [v, v];
-      e.target.nextElementSibling.textContent = v.toFixed(2) + '×';
-      renderStage(); scheduleSave();
-    });
-    row.querySelector('[data-role=scale]').addEventListener('change', saveNow);
-    const widthInput = row.querySelector('[data-role=width]');
-    if(widthInput){
-      widthInput.addEventListener('input', e=>{
-        part.width = +e.target.value;
-        e.target.nextElementSibling.textContent = part.width.toFixed(1);
-        renderStage(); scheduleSave();
-      });
-      widthInput.addEventListener('change', saveNow);
-    }
-    if(part.img){
-      const itool = (role, fn) => { const b = row.querySelector('[data-role='+role+']'); if(b) b.addEventListener('click', e => { e.stopPropagation(); activePart = pi; fn(); }); };
-      itool('imgrep', async () => { const f2 = await imgPicker({pick: true, title: 'Pick another picture'}); if(!f2) return; const files = await imgList(), m = files[f2] || {w: part.img.w, h: part.img.h}; part.img = {file:f2, w:m.w, h:m.h}; const w0 = imgSizeOfPart(part)[0]; setPartImgSize(part, w0, w0 * m.h / m.w); afterTransform(); });
-      itool('imgedit', async () => { const r = await imgPrep({name: part.img.file}); if(r){ renderStage(); renderParts(); } });
-      itool('imgframes', async () => {
-        const isFx = current && current.ns === 'effects';
-        const r = await imgFramesDialog(part.img, {life: isFx, bind: isFx, params: stateNames().params}); if(!r) return;
-        const file = part.img.file, w0 = imgSizeOfPart(part)[0];
-        if(r.cols === 1 && r.rows === 1) part.img = {file, w: r.w, h: r.h}; else part.img = Object.assign({file}, r);
-        delete part._frame; setPartImgSize(part, w0, w0 * part.img.h / part.img.w); afterTransform();
-      });
-      const fr = row.querySelector('[data-role=imgframe]');
-      if(fr) fr.addEventListener('input', e => { part._frame = +e.target.value; e.target.nextElementSibling.textContent = (part._frame + 1) + '/' + imgFrameCount(part.img); renderStage(); });
-      itool('imgfit', () => { const w0 = imgSizeOfPart(part)[0]; setPartImgSize(part, w0, w0 * part.img.h / part.img.w); afterTransform(); });
-    }
-    const tool = (role, fn) => { const b = row.querySelector('[data-role='+role+']'); if(b) b.addEventListener('click', e=>{ e.stopPropagation(); activePart = pi; fn(); }); };
-    tool('rotl90', () => rotatePartDeg(pi, -90)); tool('rotl15', () => rotatePartDeg(pi, -15));
-    tool('rotr15', () => rotatePartDeg(pi, 15));  tool('rotr90', () => rotatePartDeg(pi, 90));
-    tool('fliph', () => flipPart(pi, true)); tool('flipv', () => flipPart(pi, false));
-    const rotdeg = row.querySelector('[data-role=rotdeg]');
-    rotdeg.addEventListener('input', e => { part.rot = round3((+e.target.value || 0) * Math.PI/180); renderStage(); scheduleSave(); });
-    rotdeg.addEventListener('change', saveNow);
-    rotdeg.addEventListener('click', e => e.stopPropagation());
-    const blendBox = row.querySelector('[data-role=blend]');
-    blendBox.addEventListener('change', e => { if(e.target.checked) part.blend = 'add'; else delete part.blend; renderStage(); saveNow(); });
-    const olBox = row.querySelector('[data-role=outline]');
-    if(olBox){
-      const owIn = row.querySelector('[data-role=ow]'), ocIn = row.querySelector('[data-role=oc]');
-      olBox.addEventListener('change', e => {
-        if(e.target.checked){ part.outline = true; if(part.ow == null) part.ow = 0.6; if(!part.oc) part.oc = '#05050dff'; } else { delete part.outline; }
-        owIn.disabled = ocIn.disabled = !e.target.checked; renderStage(); saveNow();
-      });
-      owIn.addEventListener('input', e => { part.ow = Math.max(0, +e.target.value || 0); renderStage(); scheduleSave(); });
-      owIn.addEventListener('change', saveNow);
-      ocIn.addEventListener('input', e => { part.oc = e.target.value + (part.oc ? part.oc.slice(7,9) : 'ff'); renderStage(); scheduleSave(); });
-      ocIn.addEventListener('change', saveNow);
-    }
-    const schoolBox = row.querySelector('[data-role=school]');
-    if(schoolBox) schoolBox.addEventListener('change', e => { if(e.target.checked) part.school = true; else delete part.school; saveNow(); });
-    wireFxBlock(row, part);
-    const kindSel = row.querySelector('[data-role=animkind]');
-    kindSel.addEventListener('change', e => {
-      if(!e.target.value) delete part.anim;
-      else {
-        const defaults = {spin:{rate:0.5, amp:0}, pulse:{rate:2, amp:0.2}, flicker:{rate:6, amp:0.4}, wobble:{rate:2, amp:0.6}, bob:{rate:1.5, amp:0.8}, slide:{rate:1.5, amp:6}, sway:{rate:0.3, amp:0.35}}[e.target.value];
-        part.anim = Object.assign({kind: e.target.value, phase: 0}, part.anim || {}, defaults, {kind: e.target.value});
-      }
-      renderStage(); renderParts(); saveNow();
-    });
-    for(const [role, key] of [['animrate','rate'],['animamp','amp'],['animphase','phase']]){
-      const inp = row.querySelector('[data-role='+role+']');
-      if(!inp) continue;
-      inp.addEventListener('input', e => { part.anim[key] = +e.target.value || 0; scheduleSave(); });
-      inp.addEventListener('change', saveNow);
-      inp.addEventListener('click', e => e.stopPropagation());
-    }
     row.querySelector('[data-role=dup]').addEventListener('click', e=>{
       e.stopPropagation();
       const copy = clone(part);
@@ -3079,6 +3035,91 @@ function renderParts(){
       if(activePart >= parts.length) activePart = parts.length-1;
       renderStage(); renderParts(); saveNow();
     });
+    if(expanded){
+      row.querySelectorAll('details.isec').forEach(d => d.addEventListener('toggle', () => { wsOpen[d.dataset.sec] = d.open; }));
+      row.querySelector('[data-role=colcopy]').addEventListener('click', e=>{ e.stopPropagation(); colourClip = part.color.slice(0,7); renderParts(); });
+      row.querySelector('[data-role=colpaste]').addEventListener('click', e=>{ e.stopPropagation(); if(!colourClip) return; part.color = colourClip + part.color.slice(7,9); renderStage(); renderParts(); saveNow(); });
+      row.querySelector('[data-role=colpick]').addEventListener('click', e=>{ e.stopPropagation(); pickingColour = pi; stage.classList.add('pick'); });
+      row.querySelector('[data-role=alpha]').addEventListener('input', e=>{
+        const v = (+e.target.value).toString(16).padStart(2,'0');
+        part.color = part.color.slice(0,7) + v;
+        e.target.nextElementSibling.textContent = e.target.value;
+        renderStage(); scheduleSave();
+      });
+      row.querySelector('[data-role=alpha]').addEventListener('change', saveNow);
+      row.querySelector('[data-role=scale]').addEventListener('input', e=>{
+        const v = +e.target.value;
+        part.scale = [v, v];
+        e.target.nextElementSibling.textContent = v.toFixed(2) + '×';
+        renderStage(); scheduleSave();
+      });
+      row.querySelector('[data-role=scale]').addEventListener('change', saveNow);
+      const widthInput = row.querySelector('[data-role=width]');
+      if(widthInput){
+        widthInput.addEventListener('input', e=>{
+          part.width = +e.target.value;
+          e.target.nextElementSibling.textContent = part.width.toFixed(1);
+          renderStage(); scheduleSave();
+        });
+        widthInput.addEventListener('change', saveNow);
+      }
+      if(part.img){
+        const itool = (role, fn) => { const b = row.querySelector('[data-role='+role+']'); if(b) b.addEventListener('click', e => { e.stopPropagation(); activePart = pi; fn(); }); };
+        itool('imgrep', async () => { const f2 = await imgPicker({pick: true, title: 'Pick another picture'}); if(!f2) return; const files = await imgList(), m = files[f2] || {w: part.img.w, h: part.img.h}; part.img = {file:f2, w:m.w, h:m.h}; const w0 = imgSizeOfPart(part)[0]; setPartImgSize(part, w0, w0 * m.h / m.w); afterTransform(); });
+        itool('imgedit', async () => { const r = await imgPrep({name: part.img.file}); if(r){ renderStage(); renderParts(); } });
+        itool('imgframes', async () => {
+          const isFx2 = current && current.ns === 'effects';
+          const r = await imgFramesDialog(part.img, {life: isFx2, bind: isFx2, params: stateNames().params}); if(!r) return;
+          const file = part.img.file, w0 = imgSizeOfPart(part)[0];
+          if(r.cols === 1 && r.rows === 1) part.img = {file, w: r.w, h: r.h}; else part.img = Object.assign({file}, r);
+          delete part._frame; setPartImgSize(part, w0, w0 * part.img.h / part.img.w); afterTransform();
+        });
+        const fr = row.querySelector('[data-role=imgframe]');
+        if(fr) fr.addEventListener('input', e => { part._frame = +e.target.value; e.target.nextElementSibling.textContent = (part._frame + 1) + '/' + imgFrameCount(part.img); renderStage(); });
+        itool('imgfit', () => { const w0 = imgSizeOfPart(part)[0]; setPartImgSize(part, w0, w0 * part.img.h / part.img.w); afterTransform(); });
+      }
+      const tool = (role, fn) => { const b = row.querySelector('[data-role='+role+']'); if(b) b.addEventListener('click', e=>{ e.stopPropagation(); activePart = pi; fn(); }); };
+      tool('rotl90', () => rotatePartDeg(pi, -90)); tool('rotl15', () => rotatePartDeg(pi, -15));
+      tool('rotr15', () => rotatePartDeg(pi, 15));  tool('rotr90', () => rotatePartDeg(pi, 90));
+      tool('fliph', () => flipPart(pi, true)); tool('flipv', () => flipPart(pi, false));
+      const rotdeg = row.querySelector('[data-role=rotdeg]');
+      rotdeg.addEventListener('input', e => { part.rot = round3((+e.target.value || 0) * Math.PI/180); renderStage(); scheduleSave(); });
+      rotdeg.addEventListener('change', saveNow);
+      rotdeg.addEventListener('click', e => e.stopPropagation());
+      const blendBox = row.querySelector('[data-role=blend]');
+      blendBox.addEventListener('change', e => { if(e.target.checked) part.blend = 'add'; else delete part.blend; renderStage(); saveNow(); });
+      const olBox = row.querySelector('[data-role=outline]');
+      if(olBox){
+        const owIn = row.querySelector('[data-role=ow]'), ocIn = row.querySelector('[data-role=oc]');
+        olBox.addEventListener('change', e => {
+          if(e.target.checked){ part.outline = true; if(part.ow == null) part.ow = 0.6; if(!part.oc) part.oc = '#05050dff'; } else { delete part.outline; }
+          owIn.disabled = ocIn.disabled = !e.target.checked; renderStage(); saveNow();
+        });
+        owIn.addEventListener('input', e => { part.ow = Math.max(0, +e.target.value || 0); renderStage(); scheduleSave(); });
+        owIn.addEventListener('change', saveNow);
+        ocIn.addEventListener('input', e => { part.oc = e.target.value + (part.oc ? part.oc.slice(7,9) : 'ff'); renderStage(); scheduleSave(); });
+        ocIn.addEventListener('change', saveNow);
+      }
+      const schoolBox = row.querySelector('[data-role=school]');
+      if(schoolBox) schoolBox.addEventListener('change', e => { if(e.target.checked) part.school = true; else delete part.school; saveNow(); });
+      wireFxBlock(row, part);
+      const kindSel = row.querySelector('[data-role=animkind]');
+      kindSel.addEventListener('change', e => {
+        if(!e.target.value) delete part.anim;
+        else {
+          const defaults = {spin:{rate:0.5, amp:0}, pulse:{rate:2, amp:0.2}, flicker:{rate:6, amp:0.4}, wobble:{rate:2, amp:0.6}, bob:{rate:1.5, amp:0.8}, slide:{rate:1.5, amp:6}, sway:{rate:0.3, amp:0.35}}[e.target.value];
+          part.anim = Object.assign({kind: e.target.value, phase: 0}, part.anim || {}, defaults, {kind: e.target.value});
+        }
+        renderStage(); renderParts(); saveNow();
+      });
+      for(const [role, key] of [['animrate','rate'],['animamp','amp'],['animphase','phase']]){
+        const inp = row.querySelector('[data-role='+role+']');
+        if(!inp) continue;
+        inp.addEventListener('input', e => { part.anim[key] = +e.target.value || 0; scheduleSave(); });
+        inp.addEventListener('change', saveNow);
+        inp.addEventListener('click', e => e.stopPropagation());
+      }
+    }
     partsList.appendChild(row);
   });
 }
@@ -3102,18 +3143,10 @@ function renderMetaPanel(){
   box.innerHTML = '';
   if(!current){ return; }
   if(current.ns === 'effects'){ pvFlags = {}; pvParams = {}; pvSwingE = 1; renderEffectMeta(box); renderStage(); return; }
-  for(const f of (META_FIELDS[current.ns] || [])){
-    const lab = document.createElement('label'); lab.className = 'mf'; lab.title = f.title;
-    const val = meta[f.key] == null ? (f.def == null ? '' : f.def) : meta[f.key];
-    lab.innerHTML = f.label + ' <input type="number" step="' + f.step + '" value="' + val + '">';
-    const inp = lab.querySelector('input');
-    inp.addEventListener('input', e => {
-      if(e.target.value === '') delete meta[f.key]; else meta[f.key] = +e.target.value;
-      renderStage(); scheduleSave();
-    });
-    inp.addEventListener('change', saveNow);
-    box.appendChild(lab);
-  }
+  const fields = META_FIELDS[current.ns] || [];
+  if(!fields.length) return;
+  const g = mSection(box, current.ns === 'weapons' ? 'Weapon settings' : 'Shot settings');
+  for(const f of fields) mNumber(g, f.key, f.label, f.step, f.def, f.title);
 }
 
 function syncPreviewState(){
@@ -3126,85 +3159,64 @@ const DEFAULT_PARAMS = {len:100, progress:0.5, flex:-0.38, aim:0, recoil:0, clos
 function renderEffectMeta(box){
   box.innerHTML = '';
   syncPreviewState();
-  const num = (key, label, step, def, title) => {
-    const lab = document.createElement('label'); lab.className = 'mf'; lab.title = title;
-    lab.innerHTML = label + ' <input type="number" step="' + step + '" value="' + (meta[key] == null ? def : meta[key]) + '">';
-    const inp = lab.querySelector('input');
-    inp.addEventListener('input', e => { if(e.target.value === '') delete meta[key]; else meta[key] = +e.target.value; renderStage(); scheduleSave(); });
-    inp.addEventListener('change', saveNow);
-    box.appendChild(lab);
-  };
-  num('ref_radius', 'made at radius', 1, 100, 'The radius (or length, for a beam) this drawing is made at. The game scales the effect by size / this.');
-  num('z', 'draw order', 1, 4, 'Draw order in the arena (higher is in front; the ground cracks use -1).');
-  if(meta.ref_width != null) num('ref_width', 'made at width', 1, 18, 'Beam width this drawing is made at (the game scales its thickness by width / this).');
-  const lp = document.createElement('label'); lp.className = 'mf'; lp.title = 'A looping effect never ends by itself (a status on an enemy, a zone, a beam); otherwise it plays once and is removed.';
-  lp.innerHTML = 'loops <input type="checkbox" ' + (meta.loop ? 'checked' : '') + '>';
+  let g = mSection(box, 'Effect settings');
+  mNumber(g, 'ref_radius', 'Made at radius', 1, 100, 'The radius (or length, for a beam) this drawing is made at. The game scales the effect by size / this.');
+  mNumber(g, 'z', 'Draw order', 1, 4, 'Draw order in the arena (higher is in front; the ground cracks use -1).');
+  if(meta.ref_width != null) mNumber(g, 'ref_width', 'Made at width', 1, 18, 'Beam width this drawing is made at (the game scales its thickness by width / this).');
+  const lp = document.createElement('label'); lp.className = 'chk'; lp.title = 'A looping effect never ends by itself (a status on an enemy, a zone, a beam); otherwise it plays once and is removed.';
+  lp.innerHTML = '<input type="checkbox" ' + (meta.loop ? 'checked' : '') + '> <span>never ends by itself</span>';
   lp.querySelector('input').addEventListener('change', e => { if(e.target.checked) meta.loop = true; else delete meta.loop; saveNow(); });
-  box.appendChild(lp);
+  mCell(g, 'Loops', lp, false, lp.title);
+  g = mSection(box, 'Palette', !(meta.palette && Object.keys(meta.palette).length));
   for(const role of ['a', 'b', 'c']){
     const v = (meta.palette && meta.palette[role]) || null;
-    const sw = document.createElement('span'); sw.className = 'pal-swatch';
-    sw.title = 'Palette ' + role + ': the colour parts set to "palette ' + role + '" take in the editor preview. The game supplies its own (a school colour, a power colour ...).';
     const c = v ? parseHex8(v) : null;
-    sw.innerHTML = 'pal ' + role + ' <input type="color" value="' + (c ? toHex8({r:c.r, g:c.g, b:c.b, a:1}).slice(0, 7) : '#ffffff') + '"> <input type="number" step="0.05" min="0" max="1" value="' + (c ? Math.round(c.a*100)/100 : 1) + '" title="palette alpha">';
-    const [ci, ai] = sw.querySelectorAll('input');
+    const pair = document.createElement('div'); pair.className = 'pair';
+    pair.innerHTML = '<input type="color" value="' + (c ? toHex8({r:c.r, g:c.g, b:c.b, a:1}).slice(0, 7) : '#ffffff') + '"> <input type="number" step="0.05" min="0" max="1" value="' + (c ? Math.round(c.a*100)/100 : 1) + '" title="Palette alpha">';
+    const [ci, ai] = pair.querySelectorAll('input');
     const upd = () => { const cc = parseHex8(ci.value); cc.a = Math.max(0, Math.min(1, +ai.value)); meta.palette = meta.palette || {}; meta.palette[role] = toHex8(cc); renderStage(); scheduleSave(); };
     ci.addEventListener('input', upd); ai.addEventListener('input', upd);
     ci.addEventListener('change', saveNow); ai.addEventListener('change', saveNow);
-    box.appendChild(sw);
+    mCell(g, 'Palette ' + role.toUpperCase() + ' (colour, alpha)', pair, false, 'Palette ' + role + ': the colour parts set to "palette ' + role + '" take in the editor preview. The game supplies its own (a school colour, a power colour ...).');
   }
   if(isSwing()){
-    const sw = (key, label, step, def, title) => {
-      const lab = document.createElement('label'); lab.className = 'mf'; lab.title = title;
-      lab.innerHTML = label + ' <input type="number" step="' + step + '" value="' + (meta[key] == null ? def : meta[key]) + '">';
-      const inp = lab.querySelector('input');
-      inp.addEventListener('input', e => { if(e.target.value === '') delete meta[key]; else meta[key] = +e.target.value; renderStage(); scheduleSave(); });
-      inp.addEventListener('change', saveNow);
-      box.appendChild(lab);
-    };
-    const hd = document.createElement('div'); hd.className = 'mf'; hd.style.cssText = 'width:100%;color:var(--cyan-dim)';
-    hd.textContent = 'swing style (the shape of the swing is fixed by the hit area): the fill and its bright edge';
-    box.appendChild(hd);
     const sh = swingShape();
-    sw('fill_alpha', 'fill ×', 0.1, 1, 'Overall opacity of the swing fill (1 = as it is now).');
-    sw('back_alpha', 'tail alpha', 0.01, ({arc:0.08, thrust:0.05, blunt:0.03, whip:0.05})[sh], 'How visible the trailing end of the swing is (0 = fades to nothing).');
-    if(sh === 'arc' || sh === 'whip') sw('inner_alpha', 'inner alpha', 0.01, sh === 'whip' ? 0.55 : 0.22, 'How visible the inner edge of the fan is compared with its rim.');
-    sw('edge_width', 'edge width', 0.5, 2, 'Thickness of the bright line along the leading edge.');
-    sw('edge_alpha', 'edge glow', 0.1, 1.6, 'How bright the leading edge is.');
-    const fc = document.createElement('span'); fc.className = 'pal-swatch'; fc.title = 'Draw this swing in one colour instead of the weapon\'s damage-school colour (leave unchecked to keep the school colour).';
+    g = mSection(box, 'Swing style');
+    mNumber(g, 'fill_alpha', 'Fill ×', 0.1, 1, 'Overall opacity of the swing fill (1 = as it is now).');
+    mNumber(g, 'back_alpha', 'Tail alpha', 0.01, ({arc:0.08, thrust:0.05, blunt:0.03, whip:0.05})[sh], 'How visible the trailing end of the swing is (0 = fades to nothing).');
+    if(sh === 'arc' || sh === 'whip') mNumber(g, 'inner_alpha', 'Inner alpha', 0.01, sh === 'whip' ? 0.55 : 0.22, 'How visible the inner edge of the fan is compared with its rim.');
+    mNumber(g, 'edge_width', 'Edge width', 0.5, 2, 'Thickness of the bright line along the leading edge.');
+    mNumber(g, 'edge_alpha', 'Edge glow', 0.1, 1.6, 'How bright the leading edge is.');
+    const fc = document.createElement('div'); fc.className = 'pair';
     const cur = meta.fill_color ? parseHex8(meta.fill_color) : null;
-    fc.innerHTML = '<input type="checkbox" ' + (cur ? 'checked' : '') + '> fixed colour <input type="color" value="' + (cur ? toHex8({r:cur.r, g:cur.g, b:cur.b, a:1}).slice(0, 7) : '#ffd14d') + '">';
-    const [fcb, fci] = fc.querySelectorAll('input');
+    fc.innerHTML = '<label class="chk"><input type="checkbox" ' + (cur ? 'checked' : '') + '> <span>use</span></label> <input type="color" value="' + (cur ? toHex8({r:cur.r, g:cur.g, b:cur.b, a:1}).slice(0, 7) : '#ffd14d') + '">';
+    const fcb = fc.querySelector('input[type=checkbox]'), fci = fc.querySelector('input[type=color]');
     const updFc = () => { if(fcb.checked) meta.fill_color = fci.value + 'ff'; else delete meta.fill_color; renderStage(); scheduleSave(); };
     fcb.addEventListener('change', () => { updFc(); saveNow(); }); fci.addEventListener('input', updFc); fci.addEventListener('change', saveNow);
-    box.appendChild(fc);
-    const hd2 = document.createElement('div'); hd2.className = 'mf'; hd2.style.cssText = 'width:100%;color:var(--cyan-dim)';
-    hd2.textContent = 'preview only (not used by the game): how far through the swing, and the size it is shown at';
-    box.appendChild(hd2);
-    const pe = document.createElement('label'); pe.className = 'mf';
-    pe.innerHTML = 'progress <input type="range" min="0" max="1" step="0.01" value="' + pvSwingE + '" style="width:110px">';
+    mCell(g, 'Fixed colour', fc, false, 'Draw this swing in one colour instead of the weapon\'s damage-school colour (leave unchecked to keep the school colour).');
+    g = mSection(box, 'Swing preview (not used by the game)', true);
+    const pe = document.createElement('div'); pe.className = 'sl';
+    pe.innerHTML = '<input type="range" min="0" max="1" step="0.01" value="' + pvSwingE + '">';
     pe.querySelector('input').addEventListener('input', e => { pvSwingE = +e.target.value; renderStage(); });
-    box.appendChild(pe);
-    if(sh === 'arc' || sh === 'whip') sw('preview_half', 'arc half-angle', 0.05, 0.8, 'Preview: half the swing arc in radians (a sword is about 0.8).');
-    else sw('preview_width', 'width', 1, 12, 'Preview: half-width of the spike / fist.');
-    sw('preview_secs', 'play secs', 0.05, 0.3, 'Preview: how long the swing takes when you press Play.');
+    mCell(g, 'Progress through the swing', pe, true);
+    if(sh === 'arc' || sh === 'whip') mNumber(g, 'preview_half', 'Arc half-angle', 0.05, 0.8, 'Preview: half the swing arc in radians (a sword is about 0.8).');
+    else mNumber(g, 'preview_width', 'Width', 1, 12, 'Preview: half-width of the spike / fist.');
+    mNumber(g, 'preview_secs', 'Play secs', 0.05, 0.3, 'Preview: how long the swing takes when you press Play.');
   }
   const names = stateNames();
-  if(names.flags.length || names.params.filter(pr => !(isSwing() && ['e','lead','back','span','len','w','head_cx','head_r','tail_x'].includes(pr))).length){
-    const hd = document.createElement('div'); hd.className = 'mf'; hd.style.cssText = 'width:100%;color:var(--cyan-dim)';
-    hd.textContent = 'preview state (not saved): what the game would tell this drawing';
-    box.appendChild(hd);
+  const prm = names.params.filter(pr => !(isSwing() && ['e','lead','back','span','len','w','head_cx','head_r','tail_x'].includes(pr)));
+  if(names.flags.length || prm.length){
+    g = mSection(box, 'Preview state (not saved)');
     names.flags.forEach(f => {
-      const l = document.createElement('label'); l.className = 'mf';
-      l.innerHTML = '<input type="checkbox" ' + (pvFlags[f] ? 'checked' : '') + '> ' + f;
+      const l = document.createElement('label'); l.className = 'chk';
+      l.innerHTML = '<input type="checkbox" ' + (pvFlags[f] ? 'checked' : '') + '> <span>on</span>';
       l.querySelector('input').addEventListener('change', e => { pvFlags[f] = e.target.checked; renderStage(); });
-      box.appendChild(l);
+      mCell(g, f, l, false, 'A flag the game sets: what the drawing looks like with it on or off');
     });
-    names.params.filter(pr => !(isSwing() && ['e','lead','back','span','len','w','head_cx','head_r','tail_x'].includes(pr))).forEach(pr => {
-      const l = document.createElement('label'); l.className = 'mf';
-      l.innerHTML = pr + ' <input type="number" step="0.1" value="' + (pvParams[pr] || 0) + '">';
-      l.querySelector('input').addEventListener('input', e => { pvParams[pr] = +e.target.value || 0; renderStage(); });
-      box.appendChild(l);
+    prm.forEach(pr => {
+      const inp = document.createElement('input'); inp.type = 'number'; inp.step = 0.1; inp.value = pvParams[pr] || 0;
+      inp.addEventListener('input', e => { pvParams[pr] = +e.target.value || 0; renderStage(); });
+      mCell(g, pr, inp, false, 'A number the game feeds in: try values to see the drawing react');
     });
   }
 }
@@ -3253,6 +3265,7 @@ document.getElementById('btnAddPart').addEventListener('click', ()=>{
   renderStage(); renderParts(); saveNow();
 });
 document.getElementById('btnAddPicture').addEventListener('click', () => addPicturePart());
+document.getElementById('btnOpenAll').addEventListener('click', e => { openAllParts = !openAllParts; e.currentTarget.classList.toggle('on', openAllParts); e.currentTarget.textContent = openAllParts ? 'Close extras' : 'Open all'; renderParts(); });
 document.getElementById('btnDelPoint').addEventListener('click', ()=>{
   if(!current || activeVert<0) return;
   const part = parts[activePart];
