@@ -100,6 +100,11 @@ table.t { border-collapse: collapse; width: 100%; } table.t th { text-align: lef
 .pic-stage { display: grid; place-items: center; min-height: 160px; max-height: 360px; margin: 8px 0; padding: 10px; border: 1px solid var(--line); border-radius: 6px; overflow: auto; background: repeating-conic-gradient(#1c1f33 0% 25%, #12142a 0% 50%) 0 0 / 16px 16px; }
 .pic-stage img { max-width: 100%; max-height: 320px; object-fit: contain; }
 
+.theme-split { display: grid; grid-template-columns: minmax(0, 1fr) 460px; gap: 16px; align-items: start; }
+.theme-side { position: sticky; top: 0; }
+.theme-stage { zoom: .66; width: 640px; max-width: none; margin-top: 8px; }
+@media (max-width: 1250px) { .theme-split { grid-template-columns: minmax(0, 1fr); } .theme-side { position: static; order: -1; } .theme-stage { zoom: 1; overflow-x: auto; width: auto; } }
+
 </style>
 <style>
 .site-nav{display:inline-flex;gap:4px;align-items:center;margin:0 6px;flex:none}
@@ -770,7 +775,7 @@ function ih(tag, attrs, ...kids) {
 .imglib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin:8px 0}
 .imglib-card{border:1px solid #333a63;border-radius:6px;padding:6px;background:#0e1020;cursor:pointer;position:relative;display:flex;flex-direction:column;gap:3px} .imglib-card:hover{border-color:#35d0ff}
 .imglib-card .th{height:92px;display:grid;place-items:center;border-radius:4px;overflow:hidden;background-image:linear-gradient(45deg,#1c1f33 25%,transparent 25%,transparent 75%,#1c1f33 75%),linear-gradient(45deg,#1c1f33 25%,#12142a 25%,#12142a 75%,#1c1f33 75%);background-size:14px 14px;background-position:0 0,7px 7px}
-.imglib-card .th img{max-width:100%;max-height:100%;object-fit:contain} .imglib-card small{color:#8f94b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imglib-card .th img{max-width:100%;max-height:88px;object-fit:contain} .imglib-card small{color:#8f94b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .imglib-card .tools{position:absolute;top:3px;right:3px;display:none;gap:3px} .imglib-card:hover .tools{display:flex} .imglib-card .tools button{padding:1px 6px}
 .imglib-stage{position:relative;display:inline-block;border:1px solid #333a63;border-radius:6px;line-height:0;background-image:linear-gradient(45deg,#2a2e4a 25%,transparent 25%,transparent 75%,#2a2e4a 75%),linear-gradient(45deg,#2a2e4a 25%,#1a1d33 25%,#1a1d33 75%,#2a2e4a 75%);background-size:16px 16px;background-position:0 0,8px 8px;max-width:100%;overflow:auto}
 .imglib-stage canvas{display:block;touch-action:none}
@@ -3395,21 +3400,36 @@ function tabTheme() {
   };
   const wrap = h("div", {}, h("h2", {}, "Theme"), h("p", { class: "lead" }, "One place for the look of every menu: the colours (menus refer to them by name), the text sizes and the shape of panels and buttons. Change a colour here and every screen that uses it follows; menus not yet moved to data pick up the colours and button style too."));
   wrap.append(problemBlock(problemsFor("ui", "theme")));
-  const colors = h("details", { class: "card", open: true }, h("summary", {}, "Colours"));
-  for (const [name, val] of Object.entries(T.colors)) {
+  const card = (title, open = true) => h("details", { class: "card", open }, h("summary", {}, title));
+  /* colours: grouped by what they colour; a colour the pack added itself goes under "Your own colours" */
+  const COLOR_GROUPS = [["Surfaces", ["bg", "dim", "panel", "panel_border"]], ["Text", ["text", "text_dim"]], ["Buttons", ["button", "button_hover", "button_border"]], ["Accents and status", ["accent", "accent2", "good", "danger"]]];
+  const COLOR_LABEL = { bg: "background", dim: "dimmer behind a dialog", accent2: "second accent", good: "good (success)", danger: "danger (warning)", button_hover: "button, hovered", button_border: "button border" };
+  const grouped = new Set(COLOR_GROUPS.flatMap(g => g[1]));
+  const colorRow = (name, val) => {
     const changed = name in D.colors ? D.colors[name] !== val : true;
     const text = h("input", { type: "text", value: val, style: "width:100px" });
     const pick = h("input", { type: "color", value: val.slice(0, 7) });
     const commit = v => { if (!/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v)) { toast("A colour looks like #rrggbb or #rrggbbaa"); return; } const file = uiEnsureFile(); file.theme.colors = file.theme.colors || {}; if (D.colors[name] === v) delete file.theme.colors[name]; else file.theme.colors[name] = v; touch(f); re(); };
     text.addEventListener("change", () => commit(text.value.trim())); pick.addEventListener("change", () => commit(pick.value + (val.length === 9 ? val.slice(7) : "")));
-    colors.append(row(name, [pick, text, name in D.colors ? (changed ? h("button", { class: "btn small", onclick: () => { commit(D.colors[name]); } }, "reset") : null) : h("button", { class: "btn small danger", onclick: () => { delete S.files.ui.theme.colors[name]; touch(f); re(); } }, "remove")], null, changed));
-  }
-  colors.append(h("button", { class: "btn small", onclick: async () => { const n = slug(await ask("Name for the new colour:") || ""); if (!n || T.colors[n]) return; const file = uiEnsureFile(); file.theme.colors = file.theme.colors || {}; file.theme.colors[n] = "#888888"; touch(f); re(); } }, "+ colour"));
-  const fonts = h("details", { class: "card", open: true }, h("summary", {}, "Text sizes"));
+    return row(COLOR_LABEL[name] || name, [pick, text, name in D.colors ? (changed ? h("button", { class: "btn small", onclick: () => { commit(D.colors[name]); } }, "reset") : null) : h("button", { class: "btn small danger", onclick: () => { delete S.files.ui.theme.colors[name]; touch(f); re(); } }, "remove")], null, changed);
+  };
+  const colorCards = [];
+  for (const [title, names] of COLOR_GROUPS) { const c = card(title); for (const n of names) if (n in T.colors) c.append(colorRow(n, T.colors[n])); colorCards.push(c); }
+  const own = Object.keys(T.colors).filter(n => !grouped.has(n));
+  const ownCard = card("Your own colours", own.length > 0);
+  for (const n of own) ownCard.append(colorRow(n, T.colors[n]));
+  ownCard.append(h("div", { class: "ctl", style: "margin-top:6px" }, h("button", { class: "btn small", onclick: async () => { const n = slug(await ask("Name for the new colour:") || ""); if (!n || T.colors[n]) return; const file = uiEnsureFile(); file.theme.colors = file.theme.colors || {}; file.theme.colors[n] = "#888888"; touch(f); re(); } }, "+ colour"), h("span", { class: "dim" }, "A colour with its own name can be chosen for any element in the Menus tab.")));
+  colorCards.push(ownCard);
+  const fonts = card("Text sizes");
   for (const k of UI_FONT_NAMES) fonts.append(row(k, [numField({ get v() { return T.fonts[k]; }, set v(x) { setVal("fonts", k, x); } }, "v", f, { integer: true, min: 6, max: 200, after: re }), h("span", { class: "unit" }, "px")], null, T.fonts[k] !== D.fonts[k]));
-  const shape = h("details", { class: "card", open: true }, h("summary", {}, "Panels and buttons"));
-  for (const g of ["panel", "button"]) for (const k of Object.keys(D[g])) shape.append(row(`${g} ${k}`, numField({ get v() { return T[g][k]; }, set v(x) { setVal(g, k, x); } }, "v", f, { min: 0, after: re }), null, T[g][k] !== D[g][k]));
-  // a sample
+  const SHAPE_LABEL = { radius: "corner radius", border: "border width", pad: "padding", min_w: "minimum width", min_h: "minimum height" };
+  const shapeCards = [];
+  for (const [g, title] of [["panel", "Panels"], ["button", "Buttons (shape)"]]) {
+    const c = card(title);
+    for (const k of Object.keys(D[g])) c.append(row(SHAPE_LABEL[k] || k, [numField({ get v() { return T[g][k]; }, set v(x) { setVal(g, k, x); } }, "v", f, { min: 0, after: re }), h("span", { class: "unit" }, "px")], null, T[g][k] !== D[g][k]));
+    shapeCards.push(c);
+  }
+  // a sample, kept in view beside the settings so a change can be seen as it is made
   const sample = (() => {
     const stage = h("div", { style: "position:relative;width:640px;height:260px;background:" + uiCss("bg", T) + ";border-radius:6px;overflow:hidden" });
     const demo = { id: "demo", elements: [
@@ -3422,9 +3442,9 @@ function tabTheme() {
         { id: "b3", type: "button", anchor: "bottom_left", x: 280, y: -16, text: "ACCENT", w: 120, h: 36, style: "accent" },
         { id: "b4", type: "button", anchor: "bottom_left", x: 412, y: -16, text: "DANGER", w: 120, h: 36, style: "danger" } ] }] };
     demo.elements.forEach((el, i) => { const n = uiNode(el, {}, null, [i], false, "", T, { sel: null }); if (n) stage.append(n); });
-    return h("div", { class: "card" }, h("summary", {}, "Sample"), stage);
+    return h("details", { class: "card", open: true }, h("summary", {}, "Preview"), h("div", { class: "theme-stage" }, stage));
   })();
-  wrap.append(sample, colors, fonts, shape);
+  wrap.append(h("div", { class: "theme-split" }, h("div", {}, ...colorCards, fonts, ...shapeCards), h("div", { class: "theme-side" }, sample)));
   return wrap;
 }
 

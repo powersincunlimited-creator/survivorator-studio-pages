@@ -294,7 +294,7 @@ function ih(tag, attrs, ...kids) {
 .imglib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin:8px 0}
 .imglib-card{border:1px solid #333a63;border-radius:6px;padding:6px;background:#0e1020;cursor:pointer;position:relative;display:flex;flex-direction:column;gap:3px} .imglib-card:hover{border-color:#35d0ff}
 .imglib-card .th{height:92px;display:grid;place-items:center;border-radius:4px;overflow:hidden;background-image:linear-gradient(45deg,#1c1f33 25%,transparent 25%,transparent 75%,#1c1f33 75%),linear-gradient(45deg,#1c1f33 25%,#12142a 25%,#12142a 75%,#1c1f33 75%);background-size:14px 14px;background-position:0 0,7px 7px}
-.imglib-card .th img{max-width:100%;max-height:100%;object-fit:contain} .imglib-card small{color:#8f94b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imglib-card .th img{max-width:100%;max-height:88px;object-fit:contain} .imglib-card small{color:#8f94b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .imglib-card .tools{position:absolute;top:3px;right:3px;display:none;gap:3px} .imglib-card:hover .tools{display:flex} .imglib-card .tools button{padding:1px 6px}
 .imglib-stage{position:relative;display:inline-block;border:1px solid #333a63;border-radius:6px;line-height:0;background-image:linear-gradient(45deg,#2a2e4a 25%,transparent 25%,transparent 75%,#2a2e4a 75%),linear-gradient(45deg,#2a2e4a 25%,#1a1d33 25%,#1a1d33 75%,#2a2e4a 75%);background-size:16px 16px;background-position:0 0,8px 8px;max-width:100%;overflow:auto}
 .imglib-stage canvas{display:block;touch-action:none}
@@ -1456,8 +1456,8 @@ function setImgSize(p, w, h) {   // keep the centre and the turn; change the len
 function imageInspector(ins, o) {
   const p = o.poly, parent = selectedParent();
   let g = insSection(ins, "Picture");
-  const url = imgUrl(p.img.file), th = document.createElement("div"); th.className = "w2"; th.style.cssText = "height:90px;border:1px solid var(--line,#333);border-radius:6px;display:grid;place-items:center;background:#12142a";
-  if (url) { const im = document.createElement("img"); im.src = url; im.style.cssText = "max-width:100%;max-height:100%"; th.appendChild(im); } else th.textContent = IMG.files && !IMG.files[p.img.file] ? "⚠ not in the library" : "loading…";
+  const url = imgUrl(p.img.file), th = document.createElement("div"); th.className = "w2"; th.style.cssText = "height:96px;border:1px solid var(--line,#333);border-radius:6px;display:grid;place-items:center;background:#12142a;overflow:hidden;padding:3px;box-sizing:border-box";
+  if (url) { const im = document.createElement("img"); im.src = url; im.style.cssText = "max-width:100%;max-height:88px;object-fit:contain"; th.appendChild(im); } else th.textContent = IMG.files && !IMG.files[p.img.file] ? "⚠ not in the library" : "loading…";
   g.appendChild(th);
   const f1 = document.createElement("p"); f1.className = "hint"; f1.textContent = `${p.img.file}  ·  ${p.img.w}×${p.img.h} px`; g.appendChild(f1);
   const b1 = document.createElement("div"); b1.className = "btns";
