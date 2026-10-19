@@ -89,12 +89,16 @@ table.t { border-collapse: collapse; width: 100%; } table.t th { text-align: lef
 .dlg { background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; padding: 18px 20px; width: min(460px, 92vw); }
 .dlg p { margin: 0 0 10px; }
 
-.pic-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-top: 8px; }
-.pic-card { display: flex; flex-direction: column; gap: 4px; align-items: stretch; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; cursor: pointer; font-size: 12px; }
-.pic-card:hover { border-color: var(--accent); }
-.pic-card b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .pic-thumb { display: grid; place-items: center; height: 96px; border-radius: 5px; background: repeating-conic-gradient(#1b2036 0 25%, #12162a 0 50%) 0 0 / 14px 14px; }
 .pic-thumb img { max-width: 100%; max-height: 96px; object-fit: contain; }
+
+.pic-item { align-items: center; justify-content: flex-start; }
+.pic-item small { margin-left: auto; }
+.pic-mini { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 4px; overflow: hidden; background: repeating-conic-gradient(#1c1f33 0% 25%, #12142a 0% 50%) 0 0 / 12px 12px; }
+.pic-mini img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.pic-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pic-stage { display: grid; place-items: center; min-height: 160px; max-height: 360px; margin: 8px 0; padding: 10px; border: 1px solid var(--line); border-radius: 6px; overflow: auto; background: repeating-conic-gradient(#1c1f33 0% 25%, #12142a 0% 50%) 0 0 / 16px 16px; }
+.pic-stage img { max-width: 100%; max-height: 320px; object-fit: contain; }
 
 </style>
 <style>
@@ -3078,28 +3082,78 @@ setInterval(() => {
     n.style.backgroundPosition = `${cols > 1 ? (f % cols) / (cols - 1) * 100 : 0}% ${rows > 1 ? Math.floor(f / cols) / (rows - 1) * 100 : 0}%`;
   });
 }, 80);
+/* The Pictures tab: the shared picture library as a list and an inspector. Upload / paste at the top; pick a picture in the list to see it large, where the menus of this pack use it, and to cut / edit or delete it. */
 function tabPictures() {
-  return h("div", {}, h("h2", {}, "Pictures"), h("p", { class: "lead" }, "Hand-drawn art for menus, and for the puppets, weapons and arena in their own studios. Upload a drawing or photo, cut out the part you need (remove the paper, crop, erase with a brush, lasso) and keep PNG transparency. Pictures are shared by every pack and every studio. Bring them into the game folder with py tools/studio/sync_images.py pull (they go to art/library/)."),
-    h("button", { class: "btn primary", onclick: () => imgPicker({ title: "Pictures" }).then(() => renderMain()) }, "Open the picture library"),
-    h("p", { class: "dim" }, "In the Menus tab, add an element of type “image” and choose its picture there."),
-    picturesGallery());
+  const wrap = h("div", {}, h("h2", {}, "Pictures"), h("p", { class: "lead" }, "Hand-drawn art for menus, and for the puppets, weapons and arena in their own studios. Upload a drawing or photo, cut out the part you need (remove the paper, crop, erase with a brush, lasso) and keep PNG transparency. Pictures are shared by every pack and every studio. Bring them into the game folder with py tools/studio/sync_images.py pull (they go to art/library/)."));
+  const body = h("div", {}, h("p", { class: "dim" }, "Loading the library…"));
+  wrap.append(body);
+  imgList().then(files => { if (S.tab === "pictures") body.replaceWith(picturesBody(files)); }).catch(e => { body.innerHTML = ""; body.append(h("p", { class: "dim" }, "Could not read the library: " + e.message)); });
+  return wrap;
 }
-/* the library at a glance: a thumbnail, name, size and frames for each picture (click one to open the library to cut or replace it) */
-function picturesGallery() {
-  const box = h("div", {}, h("p", { class: "dim" }, "Loading the library…"));
-  imgList().then(files => {
-    const names = Object.keys(files).sort(), grid = h("div", { class: "pic-grid" });
-    box.innerHTML = "";
-    if (!names.length) { box.append(h("p", { class: "dim" }, "No pictures yet: press “Open the picture library” and upload one.")); return; }
-    const total = names.reduce((s, n) => s + (files[n].size || 0), 0);
-    box.append(h("h3", {}, `In the library (${names.length}, ${imgKb(total)})`), grid);
+/* the menu elements of this pack that show a picture */
+function pictureUses(name) {
+  const out = [], ui = S.files.ui;
+  if (!ui || !ui.screens) return out;
+  const walk = (el, screen) => {
+    if (el.type === "image" && String(el.file || "").replace(/^.*[\\/]/, "") === name) out.push(`${screen}: ${el.id || "image"}`);
+    (el.children || []).forEach(c => walk(c, screen));
+    if (el.template) walk(el.template, screen);
+  };
+  for (const [sid, sc] of Object.entries(ui.screens)) (sc.elements || []).forEach(e => walk(e, sc.name || sid));
+  return out;
+}
+function picturesBody(files) {
+  const names = Object.keys(files).sort();
+  const refresh = () => { imgList(true).then(() => renderMain()).catch(() => renderMain()); };
+  const upload = async list => { let last = null; for (const f of list) { const r = await imgPrep({ file: f }); if (r) last = r; } if (last) S.sel.picture = last; refresh(); };
+  const fileIn = h("input", { type: "file", accept: "image/*", multiple: true, style: "display:none" });
+  fileIn.addEventListener("change", () => upload([...fileIn.files]));
+  const total = names.reduce((s, n) => s + (files[n].size || 0), 0);
+  const lib = h("details", { class: "card", open: true }, h("summary", {}, "Library"),
+    h("div", { class: "ctl", style: "margin:6px 0" },
+      h("button", { class: "btn primary", onclick: () => fileIn.click() }, "⬆ Upload a picture…"), fileIn,
+      h("button", { class: "btn", title: "Use a picture you copied", onclick: async () => {
+        try { const items = await navigator.clipboard.read(); for (const it of items) { const t = it.types.find(x => x.startsWith("image/")); if (t) { const r = await imgPrep({ file: await it.getType(t) }); if (r) S.sel.picture = r; refresh(); return; } } toast("No picture on the clipboard."); } catch (e) { toast("Pasting needs permission: use Upload instead."); } } }, "📋 Paste"),
+      h("span", { class: "dim" }, names.length ? `${names.length} picture${names.length === 1 ? "" : "s"} · ${imgKb(total)}` : "The library is empty")),
+    h("p", { class: "hint dim" }, "Drop picture files on this box to upload them. In the Menus tab, add an element of type “image” and choose its picture there."));
+  lib.addEventListener("dragover", e => { e.preventDefault(); lib.style.borderColor = "var(--accent)"; });
+  lib.addEventListener("dragleave", () => { lib.style.borderColor = ""; });
+  lib.addEventListener("drop", e => { e.preventDefault(); lib.style.borderColor = ""; const fs = [...e.dataTransfer.files].filter(f => f.type.startsWith("image/")); if (fs.length) upload(fs); });
+  const out = h("div", {}, lib);
+  if (!names.length) { out.append(h("p", { class: "lead" }, "No pictures yet: upload one above.")); return out; }
+  const sel = S.sel.picture && files[S.sel.picture] ? S.sel.picture : names[0];
+  S.sel.picture = sel;
+  const list = h("div", { class: "list" });
+  const q = h("input", { type: "text", placeholder: "filter…", style: "margin:6px;width:calc(100% - 12px)", value: S.sel.pictureFilter || "" });
+  const itemsBox = h("div", {});
+  const drawItems = () => {
+    itemsBox.innerHTML = "";
+    const f2 = (S.sel.pictureFilter || "").toLowerCase();
     for (const n of names) {
-      const f = files[n], url = imgUrl(n);
-      grid.append(h("button", { class: "pic-card", title: "Open the library to cut, replace or delete it", onclick: () => imgPicker({ title: "Pictures" }).then(() => renderMain()) },
-        h("span", { class: "pic-thumb" }, url ? h("img", { src: url, alt: n }) : h("span", { class: "dim" }, "…")), h("b", {}, n.replace(/\.png$/, "")), h("span", { class: "dim" }, `${f.w || "?"} × ${f.h || "?"} · ${imgKb(f.size || 0)}`)));
+      if (f2 && !n.toLowerCase().includes(f2)) continue;
+      const url = imgUrl(n);
+      itemsBox.append(h("div", { class: "item pic-item" + (n === sel ? " on" : ""), onclick: () => { S.sel.picture = n; renderMain(); } },
+        h("span", { class: "pic-mini" }, url ? h("img", { src: url, alt: "" }) : null), h("span", { class: "pic-name" }, n.replace(/\.png$/, "")), h("small", {}, imgKb(files[n].size || 0))));
     }
-  }).catch(e => { box.innerHTML = ""; box.append(h("p", { class: "dim" }, "Could not read the library: " + e.message)); });
-  return box;
+  };
+  q.addEventListener("input", () => { S.sel.pictureFilter = q.value; drawItems(); });
+  drawItems();
+  list.append(q, itemsBox);
+  const f = files[sel], url = imgUrl(sel), uses = pictureUses(sel);
+  const preview = h("div", { class: "pic-stage" }, url ? h("img", { src: url, alt: sel }) : h("span", { class: "dim" }, "…"));
+  const pic = h("details", { class: "card", open: true }, h("summary", {}, "Picture"), preview,
+    row("name", [h("span", {}, sel)]), row("size", [h("span", {}, `${f.w || "?"} × ${f.h || "?"} px`)]), row("file size", [h("span", {}, imgKb(f.size || 0))]),
+    row("used in", h("span", { class: uses.length ? "" : "dim" }, uses.length ? `${uses.length} menu element${uses.length === 1 ? "" : "s"}` : "no menu of this pack"), uses.length ? uses.join(", ") : "Puppets, weapons and the arena choose their pictures in their own studios, so check there before deleting."));
+  const actions = h("details", { class: "card", open: true }, h("summary", {}, "Edit"),
+    h("div", { class: "ctl", style: "margin:6px 0" },
+      h("button", { class: "btn primary", title: "Crop, remove the paper, erase with a brush, lasso", onclick: async () => { const r = await imgPrep({ name: sel }); if (r) refresh(); } }, "✎ Cut or edit…"),
+      h("button", { class: "btn danger", onclick: async () => {
+        if (!(await sure(`Delete '${sel}' from the library? Menus, puppets, weapons and the arena that use it will show nothing.`))) return;
+        try { await imgRemove(sel); } catch (e) { toast(e.message, 6000); }
+        S.sel.picture = null; refresh(); } }, "Delete")),
+    h("p", { class: "hint dim" }, "Saving the edit under the same name replaces this picture everywhere it is used; a new name makes a copy."));
+  out.append(h("div", { class: "split", style: "margin-top:12px" }, list, h("div", {}, pic, actions)));
+  return out;
 }
 function uiNewElement(type, existing) {
   let n = 1; const used = new Set(existing);
