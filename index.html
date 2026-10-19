@@ -3542,12 +3542,15 @@ function tabMeta() {
   mt.items = mt.items || [];
   mt.currency = mt.currency || { name: "Gold" };
   wrap.append(problemBlock(problemsFor("meta", "")));
-  wrap.append(row("currency name", textField(mt.currency, "name", f), "What the shop calls its gold."));
+  const everything = mt.items.reduce((sum, x) => { let t = 0; for (let l = 0; l < Math.max(1, x.max_level || 1) && l < 12; l++) t += Math.round((x.cost || 0) * Math.pow(x.growth || 1, l)); return sum + t; }, 0);
+  wrap.append(h("details", { class: "card", open: true }, h("summary", {}, "The shop"),
+    row("currency name", textField(mt.currency, "name", f), "What the shop calls its gold."),
+    row("upgrades", [h("span", {}, String(mt.items.length)), h("span", { class: "unit" }, `${everything} ${mt.currency.name || "gold"} to buy every level of every upgrade`)])));
   const sel = S.sel.metaItem && mt.items.some(x => x.id === S.sel.metaItem) ? S.sel.metaItem : (mt.items[0] || {}).id;
   S.sel.metaItem = sel;
   const it = mt.items.find(x => x.id === sel);
   const list = h("div", { class: "list" });
-  for (const x of mt.items) list.append(h("div", { class: "item" + (x.id === sel ? " on" : ""), onclick: () => { S.sel.metaItem = x.id; renderMain(); } }, h("span", {}, x.name || x.id), h("small", {}, x.kind)));
+  for (const x of mt.items) list.append(h("div", { class: "item" + (x.id === sel ? " on" : ""), onclick: () => { S.sel.metaItem = x.id; renderMain(); } }, h("span", {}, x.name || x.id), h("small", {}, `${x.kind} · ${x.max_level || 1} lvl`)));
   list.append(h("div", { class: "tools" },
     h("button", { class: "btn small", onclick: async () => { const id = slug(await ask("ID for the new upgrade:") || ""); if (!id || mt.items.some(x => x.id === id)) return; mt.items.push({ id, name: id.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()), desc: "", kind: "stat", stat: "max_hp", amount: 5, max_level: 3, cost: 30, growth: 1.4 }); S.sel.metaItem = id; touch(f); re(); } }, "+ New"),
     h("button", { class: "btn small", onclick: async () => { if (!it) return; const id = slug(await ask(`Id for the copy of ${it.id}:`) || ""); if (!id || mt.items.some(x => x.id === id)) return; const c = clone(it); c.id = id; c.name += " 2"; mt.items.splice(mt.items.indexOf(it) + 1, 0, c); S.sel.metaItem = id; touch(f); re(); } }, "Copy"),
@@ -3557,16 +3560,21 @@ function tabMeta() {
     const ladder = [];
     let total = 0;
     for (let l = 0; l < Math.max(1, it.max_level || 1) && l < 12; l++) { const c = Math.round((it.cost || 0) * Math.pow(it.growth || 1, l)); total += c; ladder.push(`${l + 1}: ${c}`); }
+    const what = [];
+    if (it.kind === "stat") what.push(row("stat", selectField(it, "stat", f, C.stats.map(s => [s, (C.stat_labels[s] || s)]), { after: re })), row("per level", numField(it, "amount", f, { step: "any" }), C.pct_stats.includes(it.stat) ? "A percentage stat: 0.04 = +4%." : "A flat number."));
+    if (it.kind === "unlock") what.push(row("unlocks", selectField(it, "category", f, ["archetypes", "powers", "gear_sets", "fusion_recipes"], { after: re })), row("which", selectField(it, "target", f, (metaCats()[it.category] || []).map(i => [i, i]), { optional: true, emptyLabel: "(choose)" })));
+    if (it.kind === "run_mod") what.push(row("modifier", selectField(it, "mod", f, Object.keys(META_MOD_HELP), { after: re }), META_MOD_HELP[it.mod]), row("per level", numField(it, "amount", f, { min: 0 })));
+    if (it.kind === "cosmetic") what.push(row("flag", textField(it, "flag", f), "The game asks Meta.owned('flag')."));
     form.append(problemBlock(problemsFor("meta", `'${it.id}'`)),
-      h("details", { class: "card", open: true }, h("summary", {}, it.name || it.id),
-        row("id", [h("span", {}, it.id), h("span", { class: "unit" }, "(fixed: saves refer to it)")]), row("name", textField(it, "name", f, { after: re })), row("description", textField(it, "desc", f)),
-        row("kind", [selectField(it, "kind", f, Object.keys(META_KIND_HELP), { after: () => { if (it.kind === "cosmetic" && !it.flag) it.flag = it.id; re(); } })], META_KIND_HELP[it.kind]),   // a new cosmetic starts with its id as the flag, so it is not an error until you type
-        it.kind === "stat" ? [row("stat", selectField(it, "stat", f, C.stats.map(s => [s, (C.stat_labels[s] || s)]), { after: re })), row("per level", numField(it, "amount", f, { step: "any" }), C.pct_stats.includes(it.stat) ? "A percentage stat: 0.04 = +4%." : "A flat number.")] : null,
-        it.kind === "unlock" ? [row("unlocks", selectField(it, "category", f, ["archetypes", "powers", "gear_sets", "fusion_recipes"], { after: re })), row("which", selectField(it, "target", f, (metaCats()[it.category] || []).map(i => [i, i]), { optional: true, emptyLabel: "(choose)" }))] : null,
-        it.kind === "run_mod" ? [row("modifier", selectField(it, "mod", f, Object.keys(META_MOD_HELP), { after: re }), META_MOD_HELP[it.mod]), row("per level", numField(it, "amount", f, { min: 0 }))] : null,
-        it.kind === "cosmetic" ? row("flag", textField(it, "flag", f), "The game asks Meta.owned('flag').") : null,
-        row("levels", numField(it, "max_level", f, { integer: true, min: 1, after: re }), "1 = bought once (an unlock, a cosmetic)."), row("cost of level 1", numField(it, "cost", f, { min: 0, after: re })), row("cost growth", numField(it, "growth", f, { min: 1, step: "any", after: re }), "Each level costs this many times the one before (1 = always the same)."),
-        h("p", { class: "dim" }, `Costs: ${ladder.join("  ·  ")}   (all levels: ${total})`)));
+      h("details", { class: "card", open: true }, h("summary", {}, "The upgrade"),
+        row("name", textField(it, "name", f, { after: re })), row("description", textField(it, "desc", f)),
+        row("id", [h("span", {}, it.id), h("span", { class: "unit" }, "(fixed: saves refer to it)")]),
+        row("kind", selectField(it, "kind", f, Object.keys(META_KIND_HELP), { after: () => { if (it.kind === "cosmetic" && !it.flag) it.flag = it.id; re(); } }), META_KIND_HELP[it.kind])),   // a new cosmetic starts with its id as the flag, so it is not an error until you type
+      h("details", { class: "card", open: true }, h("summary", {}, "What it does"), what),
+      h("details", { class: "card", open: true }, h("summary", {}, "Levels and cost"),
+        row("levels", numField(it, "max_level", f, { integer: true, min: 1, after: re }), "1 = bought once (an unlock, a cosmetic)."), row("cost of level 1", numField(it, "cost", f, { min: 0, after: re })),
+        row("cost growth", numField(it, "growth", f, { min: 1, step: "any", after: re }), "Each level costs this many times the one before (1 = always the same)."),
+        h("div", { class: "ctl", style: "margin-top:8px" }, ladder.map(c => h("span", { class: "tag" }, "Level " + c)), h("span", { class: "dim" }, `all levels: ${total}`))));
   } else form.append(h("p", { class: "lead" }, "No upgrades yet."));
   wrap.append(h("div", { class: "split" }, list, form));
   return wrap;
