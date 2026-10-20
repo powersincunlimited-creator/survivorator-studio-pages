@@ -37,6 +37,19 @@ button.sm { padding: 2px 8px; font-size: 12px; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
 .pill { font: 500 12px var(--f-mono); padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
 .pill.ok { color: var(--good); border-color: var(--good); } .pill.warn { color: var(--warn); border-color: var(--warn); } .pill.bad { color: var(--bad); border-color: var(--bad); }
+/* grouped bars: related controls in a row with a frame or a rule; File is a drop-down menu */
+#stats { margin-left: auto; }
+.hg { display: inline-flex; align-items: center; gap: 6px; padding-right: 14px; border-right: 1px solid var(--line); }
+.tg { display: inline-flex; align-items: center; gap: 4px; padding: 4px; background: #14162add; border: 1px solid var(--line); border-radius: 6px; flex-wrap: wrap; }
+.tg button { padding: 4px 9px; font-size: 12px; }
+#tools { align-items: flex-start; }
+.menu { position: relative; display: inline-block; }
+.menu-pop { position: absolute; left: 0; top: calc(100% + 6px); z-index: 60; min-width: 210px; display: grid; gap: 4px; padding: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 10px 30px #000a; }
+.menu-pop.right { left: auto; right: 0; }
+.menu-pop button { width: 100%; text-align: left; }
+.menu-pop hr { margin: 2px 0; border: 0; border-top: 1px solid var(--line); }
+.menu > button[aria-expanded="true"] { border-color: var(--cyan); }
+@media (max-width: 700px) { .hg { padding-right: 8px; } }
 #banner { padding: 8px 16px; background: #2a2210; border-bottom: 1px solid var(--warn); color: var(--warn); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 main { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--wl, 290px) minmax(0, 1fr) var(--wr, 340px); }
 /* touch: handles must not scroll the page, and are bigger under a finger */
@@ -107,7 +120,10 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--wl, 2
 #tools { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 20px); }
 #hintBar { position: absolute; left: 10px; bottom: 8px; font: 11px var(--f-mono); color: var(--dim); pointer-events: none; background: #05050bcc; padding: 2px 6px; border-radius: 3px; }
 #coord { position: absolute; right: 10px; bottom: 8px; font: 11px var(--f-mono); color: var(--dim); pointer-events: none; background: #05050bcc; padding: 2px 6px; border-radius: 3px; }
-.lib { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; }
+.lib { display: grid; gap: 8px; padding: 8px 12px; }
+.libgrp { display: grid; gap: 4px; }
+.libgrp .gl { font: 600 10px var(--f-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+.libbtns { display: flex; flex-wrap: wrap; gap: 6px; }
 dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; max-width: 520px; }
 dialog::backdrop { background: rgba(0,0,0,0.6); }
 .gh.phone-only { display: none; }
@@ -131,16 +147,22 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
 <body>
 <header>
   <h1>Arena Studio <small>backdrop editor</small></h1><div class="site-nav" role="navigation" aria-label="Studios"><a href="../">Packs</a><a href="../weapons/">Weapons &amp; Shots</a><a href="../puppets/">Puppets</a><a href="../arena/" aria-current="page">Arena</a></div>
-  <button type="button" id="undo" title="Ctrl+Z">Undo</button><button type="button" id="redo" title="Ctrl+Y">Redo</button>
+  <div class="hg" role="group" aria-label="History"><button type="button" id="undo" title="Ctrl+Z">Undo</button><button type="button" id="redo" title="Ctrl+Y">Redo</button></div>
   <span class="pill" id="stats">…</span>
   <button type="button" class="pill bad" id="crossPill" hidden style="cursor:pointer" title="Polygons whose edges cross themselves vanish in the game. Click to jump to the first one (click again for the next)."></button>
-  <span class="sp"></span>
   <span class="pill" id="status">starting…</span>
   <button type="button" id="saveBtn" class="primary">Save</button>
-  <button type="button" id="reloadBtn" title="Discard local edits and load the saved version">Reload saved</button>
-  <button type="button" id="exportBtn">Export JSON</button>
-  <button type="button" id="importBtn">Import JSON</button>
-  <button type="button" id="resetBtn" class="danger" title="Back to the arena that ships in the game">Reset to game default</button>
+  <div class="menu" id="fileMenu">
+    <button type="button" id="fileBtn" aria-haspopup="menu" aria-expanded="false" title="Reload, export, import and reset">File &#9662;</button>
+    <div class="menu-pop right" role="menu" hidden>
+      <button type="button" id="reloadBtn" title="Discard local edits and load the saved version">Reload saved</button>
+      <hr>
+      <button type="button" id="exportBtn">Export JSON</button>
+      <button type="button" id="importBtn">Import JSON</button>
+      <hr>
+      <button type="button" id="resetBtn" class="danger" title="Back to the arena that ships in the game">Reset to game default</button>
+    </div>
+  </div>
   <input type="file" id="importFile" accept="application/json,.json" hidden>
 </header>
 <div id="banner" hidden></div>
@@ -158,14 +180,8 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
     <div id="editWrap">
       <canvas id="cv" tabindex="0" aria-label="Arena canvas"></canvas>
       <div id="tools">
-        <button type="button" id="fitBtn" title="Frame the whole arena">Fit arena</button>
-        <button type="button" id="zoomOutBtn" title="Zoom out">&minus;</button><button type="button" id="zoomInBtn" title="Zoom in (or pinch with two fingers)">+</button>
-        <button type="button" id="selBtn" title="Zoom to the selected prop">Zoom to prop</button>
-        <button type="button" id="gridBtn">Grid</button>
-        <button type="button" id="wallBtn" class="on" title="Mark the walls (the playable area) on the canvas">Walls</button>
-        <button type="button" id="camBtn" title="Show what the game camera sees (solo view, and the zoomed-out co-op view) around the cursor">Camera frame</button>
-        <button type="button" id="glowBtn" class="on" title="Additive light layers on / off">Light</button>
-        <button type="button" id="outlinesBtn" class="on" title="Show or hide every part outline in this editor, to see the shapes underneath. View only: the outlines are not changed and the game still draws them.">Outlines</button>
+        <div class="tg" role="group" aria-label="Zoom"><button type="button" id="fitBtn" title="Frame the whole arena">Fit arena</button><button type="button" id="zoomOutBtn" title="Zoom out">&minus;</button><button type="button" id="zoomInBtn" title="Zoom in (or pinch with two fingers)">+</button><button type="button" id="selBtn" title="Zoom to the selected prop">Zoom to prop</button></div>
+        <div class="tg" role="group" aria-label="Show on the canvas" title="What the canvas shows (view only: the arena itself does not change)"><button type="button" id="gridBtn">Grid</button><button type="button" id="wallBtn" class="on" title="Mark the walls (the playable area) on the canvas">Walls</button><button type="button" id="camBtn" title="Show what the game camera sees (solo view, and the zoomed-out co-op view) around the cursor">Camera frame</button><button type="button" id="glowBtn" class="on" title="Additive light layers on / off">Light</button><button type="button" id="outlinesBtn" class="on" title="Show or hide every part outline in this editor, to see the shapes underneath. View only: the outlines are not changed and the game still draws them.">Outlines</button></div>
       </div>
       <div id="hintBar">click a prop · drag it · wheel zooms · hold Space (or middle-drag) to pan · Edit shape to move points · arrows nudge · Delete removes</div>
       <div id="coord"></div>
@@ -1198,10 +1214,13 @@ function render() {
 }
 function fillLibrary() {
   const box = $("lib"); box.innerHTML = "";
-  Object.keys(SHAPES).forEach(k => { const b = document.createElement("button"); b.type = "button"; b.className = "sm"; b.textContent = "+ " + k; b.title = "A new prop with this shape (or a new part inside the selected prop: hold Shift)"; b.addEventListener("click", e => e.shiftKey ? addPartTo(k) : addProp(k)); box.appendChild(b); });
-  const pb = document.createElement("button"); pb.type = "button"; pb.className = "sm"; pb.textContent = "+ Picture…"; pb.title = "A hand-drawn picture from the library as a new prop (Shift: a new part of the selected prop)"; pb.addEventListener("click", e => addPicture(e.shiftKey)); box.appendChild(pb);
-  const pa = document.createElement("button"); pa.type = "button"; pa.className = "sm" + (ui.play ? " on" : ""); pa.textContent = "\u25B6 Animate pictures"; pa.title = "Play the pictures that are sheets of frames, as the game will (off: the frame slider shows one frame)"; pa.addEventListener("click", () => { ui.play = !ui.play; pa.classList.toggle("on", ui.play); redraw(); }); box.appendChild(pa);
-  const pm = document.createElement("button"); pm.type = "button"; pm.className = "sm"; pm.textContent = "Pictures"; pm.title = "The picture library: upload drawings, cut out the parts you want"; pm.addEventListener("click", () => { if (!cloudOk) { setStatus("the picture library needs the cloud", "warn"); return; } imgPicker({ title: "Pictures" }); }); box.appendChild(pm);
+  const group = (label) => { const g = document.createElement("div"); g.className = "libgrp"; const l = document.createElement("span"); l.className = "gl"; l.textContent = label; const r = document.createElement("div"); r.className = "libbtns"; g.append(l, r); box.appendChild(g); return r; };
+  const shapes = group("Shapes");
+  Object.keys(SHAPES).forEach(k => { const b = document.createElement("button"); b.type = "button"; b.className = "sm"; b.textContent = "+ " + k; b.title = "A new prop with this shape (or a new part inside the selected prop: hold Shift)"; b.addEventListener("click", e => e.shiftKey ? addPartTo(k) : addProp(k)); shapes.appendChild(b); });
+  const pics = group("Pictures");
+  const pb = document.createElement("button"); pb.type = "button"; pb.className = "sm"; pb.textContent = "+ Picture\u2026"; pb.title = "A hand-drawn picture from the library as a new prop (Shift: a new part of the selected prop)"; pb.addEventListener("click", e => addPicture(e.shiftKey)); pics.appendChild(pb);
+  const pa = document.createElement("button"); pa.type = "button"; pa.className = "sm" + (ui.play ? " on" : ""); pa.textContent = "\u25B6 Animate pictures"; pa.title = "Play the pictures that are sheets of frames, as the game will (off: the frame slider shows one frame)"; pa.addEventListener("click", () => { ui.play = !ui.play; pa.classList.toggle("on", ui.play); redraw(); }); pics.appendChild(pa);
+  const pm = document.createElement("button"); pm.type = "button"; pm.className = "sm"; pm.textContent = "Open the library"; pm.title = "The picture library: upload drawings, cut out the parts you want"; pm.addEventListener("click", () => { if (!cloudOk) { setStatus("the picture library needs the cloud", "warn"); return; } imgPicker({ title: "Pictures" }); }); pics.appendChild(pm);
   const t = document.createElement("p"); t.className = "hint"; t.style.width = "100%"; t.style.margin = "2px 0 0"; t.textContent = "Shift-click adds the shape as a new part of the selected prop. To copy a whole building or manhole, select it and press Duplicate."; box.appendChild(t);
 }
 
@@ -1253,6 +1272,22 @@ async function boot() {
 }
 
 /* ---------- toolbar wiring ---------- */
+const placeMenu = (pop, b) => {   // keep the panel on screen: a ".right" menu hangs from the button's right edge, the others from its left edge, flipping when that would run off the screen
+  pop.style.left = pop.style.right = "";
+  const w = pop.offsetWidth, br = b.getBoundingClientRect(), vw = document.documentElement.clientWidth, right = pop.classList.contains("right");
+  const fitsRight = br.right - w >= 4, fitsLeft = br.left + w <= vw - 4;
+  if (right ? (fitsRight || !fitsLeft) : (!fitsLeft && fitsRight)) { pop.style.left = "auto"; pop.style.right = "0px"; }
+  else { pop.style.right = "auto"; pop.style.left = Math.max(4 - br.left, Math.min(0, vw - 4 - w - br.left)) + "px"; }
+};
+/* drop-down menus (File): the button opens a panel of the controls it holds; a click outside, Escape or choosing something closes it */
+document.querySelectorAll(".menu").forEach(menu => {
+  const b = menu.querySelector(":scope > button"), pop = menu.querySelector(":scope > .menu-pop");
+  const close = () => { pop.hidden = true; b.setAttribute("aria-expanded", "false"); };
+  b.addEventListener("click", e => { e.stopPropagation(); const open = pop.hidden; document.querySelectorAll(".menu-pop").forEach(p => { p.hidden = true; p.parentElement.querySelector(":scope > button").setAttribute("aria-expanded", "false"); }); if (open) { pop.hidden = false; b.setAttribute("aria-expanded", "true"); placeMenu(pop, b); } });
+  pop.addEventListener("click", e => { if (e.target.closest("button")) setTimeout(close, 0); });
+  document.addEventListener("click", e => { if (!menu.contains(e.target)) close(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !pop.hidden) { close(); b.focus(); } });
+});
 $("undo").addEventListener("click", undo); $("redo").addEventListener("click", redo);
 $("saveBtn").addEventListener("click", () => saveCloud(false));
 $("reloadBtn").addEventListener("click", async () => { if (!cloudOk) { setStatus("not connected", "bad"); return; } const c = await loadCloud(); snapshot(); doc = c && !validate(c.doc) ? c.doc : clone(DEFAULT); validate(doc); ui.sel = null; dirty = false; try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} render(); setStatus(); });
