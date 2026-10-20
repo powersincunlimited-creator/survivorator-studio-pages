@@ -50,7 +50,7 @@ input[type=color] { width: 40px; height: 28px; padding: 0; background: none; bor
 .card[open] > summary { padding-bottom: 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
 /* a form section laid out in two columns: short rows side by side with the label above, wide rows (.w2) and anything that is not a row across both */
 .cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, max(330px, 48%)), 1fr)); gap: 0 26px; margin-top: 6px; }
-.cgrid > .row { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+.cgrid > .row { grid-template-columns: minmax(0, 1fr); gap: 3px; align-content: start; }   /* (a row stretched to its neighbour's height keeps its label and field together at the top) */
 .cgrid > .row > label { padding-top: 0; font-size: 12px; color: var(--dim); }
 .cgrid > .row.w2, .cgrid > :not(.row) { grid-column: 1 / -1; }
 .cardbar { display: flex; gap: 6px; justify-content: flex-end; margin: 0 0 8px; }
@@ -125,6 +125,8 @@ header .hg.end { border-right: 0; border-left: 1px solid var(--line); padding: 0
 .gl { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--dim); font-weight: 600; }
 @media (max-width: 760px) { header .hg { padding-right: 6px; } header .hg.end { padding-left: 6px; } }
 @media (max-width: 760px) { #app { grid-template-rows: auto auto 1fr; } header { flex-wrap: wrap; padding: 6px 8px; row-gap: 6px; } header .spacer { display: none; } header .hg.end { margin-left: auto; } header .hg { border-right: 0; padding-right: 0; } header .hg.end { border-left: 0; padding-left: 0; } }
+.cgrid.three { grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr)); }   /* a section of three short blocks (a set's 2 / 3 / 4-piece bonuses) */
+.cgrid.three .ctl > span[style*="min-width"] { min-width: 96px !important; }   /* a stat name needs less room when three editors sit side by side */
 
 </style>
 <style>
@@ -2540,7 +2542,7 @@ function tabGear() {
   slotCard.append(h("div", { class: "ctl" }, ge.slots.map(s => h("span", { class: "tag" }, s, " ", h("a", { href: "#", onclick: async e => { e.preventDefault(); if (!(await sure(`Remove the slot '${s}'? Every set loses its ${s} piece.`))) return; ge.slots = ge.slots.filter(x => x !== s); for (const st of Object.values(ge.sets)) delete (st.pieces || {})[s]; touch(f); re(); } }, "✕")))));
   const slotIn = h("input", { type: "text", placeholder: "new slot name", style: "width:160px" });
   slotCard.append(h("div", { class: "ctl", style: "margin-top:8px" }, slotIn, h("button", { class: "btn small", onclick: () => { const n = slug(slotIn.value); if (!n || ge.slots.includes(n)) return; ge.slots.push(n); for (const st of Object.values(ge.sets)) { st.pieces = st.pieces || {}; st.pieces[n] = { name: "New piece", mods: {} }; } touch(f); re(); } }, "+ add a slot")), h("p", { class: "dim" }, "A new slot gets a placeholder piece in every set: rename them below."));
-  wrap.append(slotCard, problemBlock(problemsFor("gear", "")));
+  wrap.append(problemBlock(problemsFor("gear", "")));
   const list = h("div", { class: "list" });
   for (const id of setIds) list.append(h("div", { class: "item" + (id === sel ? " on" : ""), onclick: () => { S.sel.gearSet = id; renderMain(); } }, h("span", {}, ge.sets[id].name || id), h("small", {}, (ge.sets[id].tags || [ge.sets[id].tag]).join(" + "))));
   list.append(h("div", { class: "tools" },
@@ -2565,9 +2567,11 @@ function tabGear() {
         r.classList.add("half");   // a piece is half the width, two side by side
         return r;
       })),
-      h("details", { class: "card", open: true }, h("summary", {}, "Set bonuses"), ["b2", "b3", "b4"].map(b => row(b === "b2" ? "2 pieces" : b === "b3" ? "3 pieces" : "4 pieces", statEditor(set[b] = set[b] || {}, f, re), b === "b4" ? "Stat keys such as kill_speed_burst, overload_chance and emergency_shield switch on the special effects the 4-piece promises." : null)), gearTotals(set, ge.slots)),
+      h("details", { class: "card cols3", open: true }, h("summary", {}, "Set bonuses"), ["b2", "b3", "b4"].map(b => { const r = row(b === "b2" ? "2 pieces" : b === "b3" ? "3 pieces" : "4 pieces", statEditor(set[b] = set[b] || {}, f, re), b === "b4" ? "Stat keys such as kill_speed_burst, overload_chance and emergency_shield switch on the special effects the 4-piece promises." : null); r.classList.add("half"); return r; }), gearTotals(set, ge.slots)),
       h("details", { class: "card" }, h("summary", {}, `Where it is used (${gearRefs(sel).length})`), gearRefs(sel).length ? h("ul", {}, gearRefs(sel).map(r => h("li", {}, r))) : h("p", { class: "dim" }, "Nothing refers to it: it can drop and be sold from the start.")));
   } else form.append(h("p", { class: "lead" }, "No gear sets yet."));
+  slotCard.firstChild.textContent = `Slots shared by every set (${ge.slots.length})`;
+  form.append(slotCard);
   wrap.append(h("div", { class: "split" }, list, form));
   return wrap;
 }
@@ -3990,7 +3994,7 @@ function layoutCard(card) {
   const kids = [...card.children].filter(k => k !== sum);
   const rows = kids.filter(k => k.classList.contains("row"));
   if (!rows.length) return;
-  const grid = h("div", { class: "cgrid" });
+  const grid = h("div", { class: "cgrid" + (card.classList.contains("cols3") ? " three" : "") });
   for (const k of kids) { if (k.classList.contains("row") && rowIsWide(k)) k.classList.add("w2"); grid.append(k); }
   card.append(grid);
 }
