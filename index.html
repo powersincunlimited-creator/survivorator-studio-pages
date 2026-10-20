@@ -2584,12 +2584,13 @@ function tabTalents() {
   const form = h("div", {});
   if (t) {
     const desc = () => `${(t.amount > 0 ? "+" : "")}${fmtStat(t.stat, t.amount)} ${statLabel(t.stat).replace(/ %$/, "")}`;
-    form.append(problemBlock(problemsFor("talents", t.name + ":")), h("details", { class: "card", open: true }, h("summary", {}, t.name),
+    form.append(problemBlock(problemsFor("talents", t.name + ":")), h("details", { class: "card", open: true }, h("summary", {}, "The talent"),
       row("name", textField(t, "name", f, { after: re })),
-      row("stat", selectField(t, "stat", f, C.stats.map(s => [s, statLabel(s)]), { after: re })),
-      row("amount", [numField(t, "amount", f, { after: re }), h("span", { class: "unit" }, isPct(t.stat) ? `a fraction: 0.12 = 12%  → ${fmtStat(t.stat, t.amount)}` : "added to the stat")], "At common rarity."),
       row("description", [textField(t, "desc", f), h("button", { class: "btn small", onclick: () => { t.desc = desc(); touch(f); re(); } }, "write it from the numbers")], "Shown on the card (the level-up screen builds its own number line from the stat and amount)."),
-      row("offensive", boolField(t, "offense", f, { optional: true }), "Marks a damage-dealing boost (used by the balance tools).")));
+      row("offensive", boolField(t, "offense", f, { optional: true }), "Marks a damage-dealing boost (used by the balance tools).")),
+      h("details", { class: "card", open: true }, h("summary", {}, "What it gives"),
+      row("stat", selectField(t, "stat", f, C.stats.map(s => [s, statLabel(s)]), { after: re })),
+      row("amount", [numField(t, "amount", f, { after: re }), h("span", { class: "unit" }, isPct(t.stat) ? `a fraction: 0.12 = 12%  → ${fmtStat(t.stat, t.amount)}` : "added to the stat")], "At common rarity.")));
     const mult = rarityMult();
     const tb = h("table", { class: "t" }, h("tr", {}, ["rarity", "multiplier", "gives"].map(x => h("th", {}, x))));
     mult.forEach((m, i) => tb.append(h("tr", {}, h("td", {}, RARITY_NAMES[i]), h("td", {}, "x" + m), h("td", {}, h("b", {}, (t.amount > 0 ? "+" : "") + fmtStat(t.stat, t.amount * m))))));
@@ -2693,11 +2694,14 @@ function tabAchievements() {
     });
     rbox.append(h("button", { class: "btn small", onclick: () => { rewards.push({ category: "powers", id: (rewardOptions("powers")[0] || [""])[0] }); touch(f); re(); } }, "+ reward"));
     form.append(problemBlock(problemsFor("achievements", a.id + ":")),
-      h("details", { class: "card", open: true }, h("summary", {}, a.name || a.id),
-        row("id", [h("span", {}, a.id), h("span", { class: "unit" }, "(fixed)")]), row("name", textField(a, "name", f, { after: re })),
-        row("rank", selectField(a, "rank", f, [1, 2, 3, 4, 5].map(n => [n, "★".repeat(n) + `  (${["easy", "casual", "solid", "hard", "legendary"][n - 1]})`]), { number: true }), "A rank-4 power is unlocked by a rank-4 achievement."),
-        row("goal", typeSel, "What the player has to do."), condRows,
+      h("details", { class: "card", open: true }, h("summary", {}, "The achievement"),
+        row("name", textField(a, "name", f, { after: re })),
         row("description", [textField(a, "desc", f), h("button", { class: "btn small", onclick: () => { a.desc = condText(a); touch(f); re(); } }, "write it from the goal")], "Shown in the achievements list."),
+        row("id", [h("span", {}, a.id), h("span", { class: "unit" }, "(fixed)")]),
+        row("rank", selectField(a, "rank", f, [1, 2, 3, 4, 5].map(n => [n, "★".repeat(n) + `  (${["easy", "casual", "solid", "hard", "legendary"][n - 1]})`]), { number: true }), "A rank-4 power is unlocked by a rank-4 achievement.")),
+      h("details", { class: "card", open: true }, h("summary", {}, "The goal"),
+        row("goal", typeSel, "What the player has to do."), condRows),
+      h("details", { class: "card", open: true }, h("summary", {}, "Unlocks"),
         row("unlocks", rbox, rewards.length ? null : "Nothing: a trophy.")));
   } else form.append(h("p", { class: "lead" }, "No achievements yet."));
   wrap.append(h("div", { class: "split" }, list, form));
@@ -2809,19 +2813,21 @@ function tabFusion() {
   const form = h("div", {});
   if (sel) {
     const r = fu.recipes[sel];
-    form.append(h("p", { class: "dim" }, `Recipe ${sel}: ${sel.split("+").map(powerName).join(" fused with ")} gives:`), powerForm(r, f, { noId: true, noProblems: true }));
+    form.append(h("div", { class: "ctl", style: "margin-bottom:8px" }, h("b", {}, "The pair"), sel.split("+").map((id, i) => [i ? h("span", { class: "dim" }, "+") : null, h("span", { class: "tag" }, powerName(id))]), h("span", { class: "dim" }, "gives:")), powerForm(r, f, { noId: true, noProblems: true }));
   } else form.append(h("p", { class: "lead" }, "No hand-made recipes: every pair is blended automatically."));
   wrap.append(h("div", { class: "split" }, list, form));
   // naming words
   const frag = h("details", { class: "card", open: true }, h("summary", {}, "Naming words for blended fusions"), h("p", { class: "dim" }, "A blended fusion keeps the base power's name and gets a prefix from the power folded in (4 adjectives); a heavily fused power graduates to a grander name (the root)."));
+  const ft = h("table", { class: "t" }, h("tr", {}, ["Power", "Prefix words (comma separated)", "Grand name"].map(x => h("th", {}, x))));
   for (const p of S.files.powers.powers || []) {
     const e = fu.fragments[p.id] = fu.fragments[p.id] || { pre: [], root: "" };
-    const pre = h("input", { type: "text", style: "width:360px", value: (e.pre || []).join(", "), placeholder: "Charged, Voltaic, Arclight, Plasma" });
+    const pre = h("input", { type: "text", style: "width:100%;min-width:220px", value: (e.pre || []).join(", "), placeholder: "Charged, Voltaic, Arclight, Plasma" });
     pre.addEventListener("change", () => { e.pre = pre.value.split(",").map(s => s.trim()).filter(Boolean); touch(f); });
-    const root = h("input", { type: "text", style: "width:160px", value: e.root || "", placeholder: "Overload" });
+    const root = h("input", { type: "text", style: "width:100%;min-width:120px", value: e.root || "", placeholder: "Overload" });
     root.addEventListener("change", () => { e.root = root.value.trim(); touch(f); });
-    frag.append(row(p.name || p.id, [pre, root], "lend these words as a prefix · and this as its grand name"));
+    ft.append(h("tr", {}, h("td", {}, p.name || p.id), h("td", {}, pre), h("td", {}, root)));
   }
+  frag.append(h("div", { style: "overflow-x:auto" }, ft), h("p", { class: "hint dim" }, "The prefix words are lent to a blend when this power is folded in; the grand name is what a heavily fused power graduates to."));
   wrap.append(frag);
   return wrap;
 }
@@ -2834,16 +2840,21 @@ function tabLooks() {
   const wrap = h("div", {}, h("h2", {}, "Power looks"), h("p", { class: "lead" }, "How each power looks in the world: the prop or glow the hero holds, the look of the shot that flies, and the little burst where it hits. A blank cell means none (no held prop, the plain bullet, no burst). Draw new weapons and shots in the Weapon & Shot studio; this just picks them."));
   wrap.append(h("datalist", { id: "weaponKinds" }, DATA.consts.weapon_kinds.map(k => h("option", { value: k }))), h("datalist", { id: "shotVisuals" }, DATA.consts.shot_visuals.map(k => h("option", { value: k }))), h("datalist", { id: "impactKeys" }, DATA.consts.impact_keys.map(k => h("option", { value: k }))));
   wrap.append(problemBlock(problemsFor("looks", "")));
-  const t = h("table", { class: "t" }, h("tr", {}, ["power", "shape", "held weapon / glow", "shot look", "hit burst"].map(x => h("th", {}, x))));
+  const t = h("table", { class: "t" }, h("tr", {}, ["Power", "Shape", "Held weapon / glow", "Shot look", "Hit burst"].map(x => h("th", {}, x))));
   const cell = (table, id, list) => { const i = h("input", { type: "text", list, value: lk[table][id] || "", style: "width:170px" }); i.addEventListener("change", () => { if (i.value.trim()) lk[table][id] = i.value.trim(); else delete lk[table][id]; touch(f); }); return h("td", {}, i); };
-  for (const p of S.files.powers.powers || []) t.append(h("tr", {}, h("td", {}, p.name || p.id), h("td", { class: "dim" }, (SHAPE_INFO[p.shape] || {}).label || p.shape), cell("weapon", p.id, "weaponKinds"), cell("projectile_visual", p.id, "shotVisuals"), cell("projectile_impact", p.id, "impactKeys")));
-  wrap.append(h("div", { style: "overflow-x:auto" }, t));
+  const allPowers = S.files.powers.powers || [];
+  const custom = allPowers.filter(p => ["weapon", "projectile_visual", "projectile_impact"].some(k => lk[k][p.id])).length;
+  const filter = h("input", { type: "text", placeholder: "filter powers…", style: "width:220px", value: S.sel.looksFilter || "" });
+  filter.addEventListener("input", () => { S.sel.looksFilter = filter.value; const q = filter.value.trim().toLowerCase(); for (const tr of t.querySelectorAll("tr[data-p]")) tr.style.display = !q || tr.dataset.p.includes(q) ? "" : "none"; });
+  for (const p of allPowers) t.append(h("tr", { "data-p": `${p.id} ${p.name || ""} ${p.shape}`.toLowerCase() }, h("td", {}, p.name || p.id), h("td", { class: "dim" }, (SHAPE_INFO[p.shape] || {}).label || p.shape), cell("weapon", p.id, "weaponKinds"), cell("projectile_visual", p.id, "shotVisuals"), cell("projectile_impact", p.id, "impactKeys")));
+  wrap.append(h("details", { class: "card", open: true }, h("summary", {}, `Looks by power (${allPowers.length})`), h("div", { class: "ctl", style: "margin:6px 0" }, filter, h("span", { class: "dim" }, `${custom} of ${allPowers.length} have a look of their own`)), h("div", { style: "overflow-x:auto" }, t)));
+  filter.dispatchEvent(new Event("input"));
   return wrap;
 }
 
 // ================================================================ HERO EFFECTS
 const VFX_LAYERS = [["aura", "idle aura (always on)"], ["motion", "while running"], ["cast", "when a power fires"], ["impact", "when its hits land"], ["crit", "on a critical hit"], ["level_up", "on levelling up"], ["low_hp", "at low health"], ["dodge", "on a dodge"], ["hurt", "when hurt"], ["heal", "when healed"], ["summon", "when it summons"], ["deploy", "when it deploys a turret / mine"]];
-const VFX_TUNING = [["arc_rate", "arcs per second"], ["ghost_gap", "s between afterimages"], ["ember_rate", "embers per second"], ["stride", "px per footprint"], ["wisp_rate", "wisps per second"]];
+const VFX_TUNING = [["arc_rate", "arcs per second"], ["ghost_gap", "time between afterimages (s)"], ["ember_rate", "embers per second"], ["stride", "distance per footprint (px)"], ["wisp_rate", "wisps per second"]];
 
 function tabEffects() {
   const prof = S.files.hero_effects.profiles = S.files.hero_effects.profiles || {};
@@ -2864,8 +2875,8 @@ function tabEffects() {
   else {
     form.append(h("details", { class: "card", open: true }, h("summary", {}, "Colours"), row("main colour", colorField(p, "c1", f, { after: re })), row("glow colour", colorField(p, "c2", f, { after: re })),
       h("div", { class: "ctl", style: "margin:8px 0" }, h("span", { style: `display:inline-block;width:120px;height:24px;border-radius:6px;background:linear-gradient(90deg,${p.c1},${p.c2})` }), h("span", { class: "dim" }, "the pair"))),
-      h("details", { class: "card", open: true }, h("summary", {}, "Styles"), VFX_LAYERS.map(([k, label]) => row(k, [selectField(p, k, f, used(k), { optional: true, emptyLabel: "(none)" }), h("span", { class: "unit" }, label)], null, p[k] !== undefined))),
-      h("details", { class: "card" }, h("summary", {}, "Tuning"), VFX_TUNING.map(([k, label]) => row(k, [numField(p, k, f, { optional: true, min: 0 }), h("span", { class: "unit" }, label)], null, p[k] !== undefined)), h("p", { class: "dim" }, "Only the ones a chosen style reads do anything.")),
+      h("details", { class: "card", open: true }, h("summary", {}, "Styles"), VFX_LAYERS.map(([k, label]) => { const m = label.match(/^([^(]+?)\s*\((.*)\)$/); return row(m ? m[1] : label, selectField(p, k, f, used(k), { optional: true, emptyLabel: "(none)" }), m ? m[2] : null, p[k] !== undefined); })),
+      h("details", { class: "card" }, h("summary", {}, "Tuning"), VFX_TUNING.map(([k, label]) => row(label, numField(p, k, f, { optional: true, min: 0 }), null, p[k] !== undefined)), h("p", { class: "dim" }, "Only the ones a chosen style reads do anything.")),
       h("button", { class: "btn small danger", onclick: async () => { if (await sure("Remove this hero's effects profile?")) { delete prof[sel]; touch(f); re(); } } }, "Remove its effects"));
   }
   wrap.append(h("div", { class: "split" }, list, form));
@@ -3793,9 +3804,10 @@ function cleanRules(rules) { for (const a of Object.keys(rules)) if (isObjV(rule
 
 function rulesEditor(rules, file, opts = {}) {
   const wrap = h("div", {});
-  const filter = h("input", { type: "text", placeholder: "filter knobs…", style: "margin-bottom:10px;width:260px" });
+  const filter = h("input", { type: "text", placeholder: "filter knobs…", style: "width:260px" });
+  const changedOnly = h("input", { type: "checkbox" });
   const body = h("div", {});
-  wrap.append(filter, body);
+  wrap.append(h("div", { class: "ctl", style: "margin-bottom:10px" }, filter, h("label", { class: "ctl", style: "gap:5px;cursor:pointer" }, changedOnly, "Changed from the default only")), body);
   const draw = () => {
     body.innerHTML = "";
     const q = filter.value.trim().toLowerCase();
@@ -3803,14 +3815,16 @@ function rulesEditor(rules, file, opts = {}) {
       const rows = [];
       for (const [knob, spec] of Object.entries(def.knobs)) {
         if (q && !(`${area}.${knob} ${spec.label} ${spec.desc}`.toLowerCase().includes(q))) continue;
+        if (changedOnly.checked && !(knob in (rules[area] || {}))) continue;
         rows.push(knobRow(rules, area, knob, spec, file, draw));
       }
       if (!rows.length) continue;
       const set = Object.keys(rules[area] || {}).length;
-      body.append(h("details", { class: "card", open: q || set ? true : undefined }, h("summary", {}, def.label, h("span", { class: "dim" }, `  ·  ${rows.length} knobs${set ? `, ${set} changed` : ""}`)), rows));
+      body.append(h("details", { class: "card", open: q || changedOnly.checked || set ? true : undefined }, h("summary", {}, def.label, h("span", { class: "dim" }, `  ·  ${rows.length} knobs${set ? `, ${set} changed` : ""}`)), rows));
     }
   };
   filter.addEventListener("input", draw);
+  changedOnly.addEventListener("change", draw);
   draw();
   return wrap;
 }
@@ -4402,7 +4416,13 @@ const FILE_TAB = { game: "rules", enemies: "enemies", abilities: "abilities", he
 function tabProblems() {
   const wrap = h("div", {}, h("h2", {}, "Problems"), h("p", { class: "lead" }, "What the same validator the game's tools use finds in this pack. Click one to open the file it is in. Fix them all before pulling the pack into the game."));
   if (!S.problems.length) { wrap.append(h("p", { class: "chip ok" }, "✓ no problems found")); return wrap; }
-  wrap.append(h("ul", { class: "problems" }, S.problems.map(p => h("li", { onclick: async () => { const file = p.split(".json")[0]; if (FILE_TAB[file]) S.tab = FILE_TAB[file]; else { S.tab = "content"; S.sel.file = file; S.sel.item = null; } renderNav(); renderMain(); } }, h("b", {}, p.split(": ")[0] + " "), p.split(": ").slice(1).join(": ")))));
+  const open = file => { if (FILE_TAB[file]) S.tab = FILE_TAB[file]; else { S.tab = "content"; S.sel.file = file; S.sel.item = null; } renderNav(); renderMain(); };
+  const byFile = {};
+  for (const p of S.problems) (byFile[p.split(".json")[0]] = byFile[p.split(".json")[0]] || []).push(p);
+  wrap.append(h("p", { class: "dim" }, `${S.problems.length} problem${S.problems.length === 1 ? "" : "s"} in ${Object.keys(byFile).length} file${Object.keys(byFile).length === 1 ? "" : "s"}.`));
+  for (const [file, list] of Object.entries(byFile)) wrap.append(h("details", { class: "card", open: true }, h("summary", { "data-nopolish": "" }, `${file}.json (${list.length})`),
+    h("ul", { class: "problems", style: "margin-top:8px" }, list.map(p => h("li", { title: "Open it", onclick: async () => open(file) }, p.split(": ").slice(1).join(": ")))),
+    h("button", { class: "btn small", onclick: () => open(file) }, "Open " + file + ".json")));
   return wrap;
 }
 
