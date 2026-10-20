@@ -39,6 +39,26 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .seg button.dim { opacity: 0.45; }
 .pill { font: 500 12px var(--f-mono); padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
 .pill.ok { color: var(--good); border-color: var(--good); } .pill.warn { color: var(--warn); border-color: var(--warn); } .pill.bad { color: var(--bad); border-color: var(--bad); }
+/* the top bar and the toolbars are grouped: a group is a row of related controls with a rule after it; File and Mirror are drop-down menus */
+#stats { margin-left: auto; }
+.hg { display: inline-flex; align-items: center; gap: 6px; padding-right: 14px; border-right: 1px solid var(--line); }
+.hg .gl, .pvrow .gl { font: 600 10px var(--f-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+.tg { display: inline-flex; gap: 4px; padding: 4px; background: #14162add; border: 1px solid var(--line); border-radius: 6px; }
+.tg button { padding: 4px 9px; font-size: 12px; }
+#editTools { align-items: flex-start; }
+#editTools .menu > button { padding: 8px 11px; font-size: 12px; }
+.menu { position: relative; display: inline-block; }
+.menu-pop { position: absolute; left: 0; top: calc(100% + 6px); z-index: 60; min-width: 210px; display: grid; gap: 4px; padding: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 10px 30px #000a; }
+.menu-pop.right { left: auto; right: 0; }
+.menu-pop button, .menu-pop select { width: 100%; text-align: left; }
+.menu-pop hr { margin: 2px 0; border: 0; border-top: 1px solid var(--line); }
+.menu-pop .menu-lab { font: 600 10px var(--f-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); padding: 2px 4px 0; }
+.menu-pop select { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; }
+.menu > button[aria-expanded="true"] { border-color: var(--cyan); }
+.pvrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pvrow .gl { width: 52px; }
+.pvsl { gap: 14px; }
+@media (max-width: 700px) { .hg { padding-right: 8px; } .hg .gl { display: none; } .menu-pop.right { right: 0; } }
 #banner { padding: 8px 16px; background: #2a2210; border-bottom: 1px solid var(--warn); color: var(--warn); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 main { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--wl, 300px) minmax(0, 1fr) var(--wr, 360px); }
 /* touch: handles must not scroll the page, and are bigger under a finger */
@@ -139,26 +159,34 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
 <body>
 <header>
   <h1>Puppet Studio <small>animation editor</small></h1><div class="site-nav" role="navigation" aria-label="Studios"><a href="../">Packs</a><a href="../weapons/">Weapons &amp; Shots</a><a href="../puppets/" aria-current="page">Puppets</a><a href="../arena/">Arena</a></div>
-  <select id="styleSel" aria-label="Animation style" title="How this puppet is animated. Skeletal: the rig swings, leans and aims (the animation numbers). Flipbook: nothing is rigged; picture parts play their frames and are shown only in the state you set (moving / aiming / firing).">
+  <div class="hg" role="group" aria-label="Puppet" title="Which puppet you are editing"><select id="charSel" aria-label="Character" title="Which character you are editing. Each has its own cloud save."></select>
+  <button type="button" id="puppetBtn" title="New puppet / Save as, Delete, Rename to the naming convention, Size of this puppet">Puppet…</button></div>
+  <div class="hg" role="group" aria-label="How it is drawn and animated"><select id="styleSel" aria-label="Animation style" title="How this puppet is animated. Skeletal: the rig swings, leans and aims (the animation numbers). Flipbook: nothing is rigged; picture parts play their frames and are shown only in the state you set (moving / aiming / firing).">
     <option value="skeletal">Skeletal (rig)</option><option value="flipbook">Flipbook (frames)</option></select>
   <select id="dirSel" aria-label="Directions" title="Which way the puppet can face. 4 directions: front, back, left and right drawings (the full set). Left and right only: one side drawing, turned (like Brotato or Vampire Survivors); facing up or down keeps the last side, and the aim picks the side. Separate from the animation style.">
-    <option value="all">4 directions</option><option value="sides">Left &amp; right only</option></select>
-  <select id="charSel" aria-label="Character" title="Which character you are editing. Each has its own cloud save."></select>
-  <button type="button" id="puppetBtn" title="New puppet / Save as, Delete, Rename to the naming convention, Size of this puppet">Puppet…</button>
+    <option value="all">4 directions</option><option value="sides">Left &amp; right only</option></select></div>
+  <div class="hg" role="group" aria-label="Drawing"><span class="gl">Edit</span>
   <div class="seg" id="viewSeg" role="group" aria-label="Drawing" title="Which drawing you are EDITING (the big canvas). The live preview on the right has its own facing buttons.">
     <button type="button" data-view="front">Front</button><button type="button" data-view="back">Back</button><button type="button" data-view="side" class="on" title="The left-facing drawing (stored as 'side' in the data)">Left</button><button type="button" data-view="right">Right</button>
-  </div>
-  <button type="button" id="undo" title="Ctrl+Z">Undo</button><button type="button" id="redo" title="Ctrl+Y">Redo</button>
+  </div></div>
+  <div class="hg" role="group" aria-label="History"><button type="button" id="undo" title="Ctrl+Z">Undo</button><button type="button" id="redo" title="Ctrl+Y">Redo</button></div>
+  <span class="sp"></span>
   <span class="pill" id="stats">…</span>
   <button type="button" class="pill bad" id="crossPill" hidden style="cursor:pointer"></button>
-  <span class="sp"></span>
   <span class="pill" id="status">starting…</span>
   <button type="button" id="saveBtn" class="primary">Save</button>
-  <button type="button" id="reloadBtn" title="Discard local edits and load the saved version">Reload saved</button>
-  <button type="button" id="picsBtn" title="The picture library: upload drawings, cut out the parts you want">Pictures</button>
-  <button type="button" id="exportBtn">Export JSON</button>
-  <button type="button" id="importBtn">Import JSON</button>
-  <button type="button" id="resetBtn" class="danger" title="Back to the art that ships in the game">Reset to game default</button>
+  <div class="menu" id="fileMenu">
+    <button type="button" id="fileBtn" aria-haspopup="menu" aria-expanded="false" title="Reload, pictures, export, import and reset">File &#9662;</button>
+    <div class="menu-pop right" role="menu" hidden>
+      <button type="button" id="reloadBtn" title="Discard local edits and load the saved version">Reload saved</button>
+      <button type="button" id="picsBtn" title="The picture library: upload drawings, cut out the parts you want">Pictures</button>
+      <hr>
+      <button type="button" id="exportBtn">Export JSON</button>
+      <button type="button" id="importBtn">Import JSON</button>
+      <hr>
+      <button type="button" id="resetBtn" class="danger" title="Back to the art that ships in the game">Reset to game default</button>
+    </div>
+  </div>
   <input type="file" id="importFile" accept="application/json,.json" hidden>
 </header>
 <div id="banner" hidden></div>
@@ -174,17 +202,20 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
     <div id="editWrap">
       <svg id="edit" tabindex="0" aria-label="Edit canvas"></svg>
       <div id="editTools">
-        <button type="button" id="gridBtn" class="on">Grid</button>
-        <button type="button" id="handlesBtn" class="on">Handles</button>
-        <button type="button" id="pivotOnlyBtn" title="Pivot only: dragging a pivot (or typing its Position) moves just the pivot, and its polygons and sub-parts stay where they are on screen. Off: everything inside moves with it. Holding Shift while dragging does the opposite of this setting.">Pivot only</button>
-        <button type="button" id="outlinesBtn" class="on" title="Show or hide every outline on this canvas, to see the shapes underneath. Editing view only: the outlines themselves are not changed, and the preview and the game still draw them.">Outlines</button>
-        <button type="button" id="fitBtn">Fit</button>
-        <button type="button" id="zoomOutBtn" title="Zoom out">&minus;</button><button type="button" id="zoomInBtn" title="Zoom in (or pinch with two fingers)">+</button>
-        <button type="button" id="mirrorToRightBtn" title="Replace the Right drawing with an exact mirror of the Left one (undo with Ctrl+Z)">Left → Right</button>
-        <button type="button" id="mirrorToLeftBtn" title="Replace the Left drawing with an exact mirror of the Right one (undo with Ctrl+Z)">Right → Left</button>
-        <select id="linkSel" title="Keep one side generated from the other: draw one side once and the other follows after every edit"><option value="">Auto-mirror: off</option><option value="side>right">Auto: Left → Right</option><option value="right>side">Auto: Right → Left</option></select>
+        <div class="tg" role="group" aria-label="View" title="What the canvas shows"><button type="button" id="gridBtn" class="on">Grid</button><button type="button" id="handlesBtn" class="on">Handles</button><button type="button" id="outlinesBtn" class="on" title="Show or hide every outline on this canvas, to see the shapes underneath. Editing view only: the outlines themselves are not changed, and the preview and the game still draw them.">Outlines</button><button type="button" id="mirrorViewBtn" title="Preview this drawing mirrored, as the right-facing hero uses it">Mirror view</button></div>
+        <div class="tg" role="group" aria-label="Zoom"><button type="button" id="fitBtn">Fit</button><button type="button" id="zoomOutBtn" title="Zoom out">&minus;</button><button type="button" id="zoomInBtn" title="Zoom in (or pinch with two fingers)">+</button></div>
+        <div class="tg" role="group" aria-label="Editing mode"><button type="button" id="pivotOnlyBtn" title="Pivot only: dragging a pivot (or typing its Position) moves just the pivot, and its polygons and sub-parts stay where they are on screen. Off: everything inside moves with it. Holding Shift while dragging does the opposite of this setting.">Pivot only</button></div>
+        <div class="menu" id="mirrorMenu">
+          <button type="button" id="mirrorBtn" aria-haspopup="menu" aria-expanded="false" title="Copy one side to the other, or keep them linked">Mirror &#9662;</button>
+          <div class="menu-pop" role="menu" hidden>
+            <button type="button" id="mirrorToRightBtn" title="Replace the Right drawing with an exact mirror of the Left one (undo with Ctrl+Z)">Left → Right</button>
+            <button type="button" id="mirrorToLeftBtn" title="Replace the Left drawing with an exact mirror of the Right one (undo with Ctrl+Z)">Right → Left</button>
+            <hr>
+            <label class="menu-lab" for="linkSel">Keep the sides linked</label>
+            <select id="linkSel" title="Keep one side generated from the other: draw one side once and the other follows after every edit"><option value="">Auto-mirror: off</option><option value="side>right">Auto: Left → Right</option><option value="right>side">Auto: Right → Left</option></select>
+          </div>
+        </div>
         <span id="linkNote" class="pill warn" hidden>generated from the other side: edit that one</span>
-        <button type="button" id="mirrorViewBtn" title="Preview this drawing mirrored, as the right-facing hero uses it">Mirror view</button>
       </div>
       <div id="editHint">click a part · drag it · drag a handle · click the orange square on an edge to add a point · Alt-click a point to delete · wheel zooms · hold Space and drag to pan</div>
     </div>
@@ -195,11 +226,10 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
       <div id="pvWrap"><svg id="pv" aria-label="Animated preview"></svg></div>
       <div class="gh" id="ghPv" title="Drag to resize the preview · double-click to reset"></div>
       <div class="pvbar">
-        <div class="seg" id="pvFace" role="group" aria-label="Preview facing" title="Which way the LIVE PREVIEW faces (it does not change the drawing you are editing)."><button type="button" data-f="down">Front</button><button type="button" data-f="up">Back</button><button type="button" data-f="left" class="on">Left</button><button type="button" data-f="right">Right</button></div>
-        <div class="seg" id="pvMove" role="group" aria-label="Motion"><button type="button" data-m="idle">Idle</button><button type="button" data-m="run" class="on">Run</button></div>
-        <div class="seg" id="pvAim" role="group" aria-label="Arm aim"><button type="button" data-a="off">No aim</button><button type="button" data-a="sweep" class="on">Sweep</button><button type="button" data-a="fixed">Fixed</button><button type="button" id="pvFire">Fire</button></div>
-        <div class="f"><label for="pvAngle">Aim °</label><input id="pvAngle" type="range" min="-180" max="180" value="0"></div>
-        <div class="f"><label for="pvAccent">Accent</label><input id="pvAccent" type="color" value="#35a6ff"></div>
+        <div class="pvrow"><span class="gl">Facing</span><div class="seg" id="pvFace" role="group" aria-label="Preview facing" title="Which way the LIVE PREVIEW faces (it does not change the drawing you are editing)."><button type="button" data-f="down">Front</button><button type="button" data-f="up">Back</button><button type="button" data-f="left" class="on">Left</button><button type="button" data-f="right">Right</button></div></div>
+        <div class="pvrow"><span class="gl">Motion</span><div class="seg" id="pvMove" role="group" aria-label="Motion"><button type="button" data-m="idle">Idle</button><button type="button" data-m="run" class="on">Run</button></div></div>
+        <div class="pvrow"><span class="gl">Arm</span><div class="seg" id="pvAim" role="group" aria-label="Arm aim"><button type="button" data-a="off">No aim</button><button type="button" data-a="sweep" class="on">Sweep</button><button type="button" data-a="fixed">Fixed</button><button type="button" id="pvFire">Fire</button></div></div>
+        <div class="pvrow pvsl"><div class="f"><label for="pvAngle">Aim °</label><input id="pvAngle" type="range" min="-180" max="180" value="0"></div><div class="f"><label for="pvAccent">Accent</label><input id="pvAccent" type="color" value="#35a6ff"></div></div>
       </div>
     </div>
     <div class="sec" style="flex: 1 1 auto"><h2>Animation numbers</h2><div class="scroll" id="params"></div></div>
@@ -1887,7 +1917,8 @@ function renderPuppetDialog(msg) {
   from.value = CHARACTERS.template_stripped ? "template_stripped" : "@current";
   const go = document.createElement("button"); go.type = "button"; go.className = "primary"; go.textContent = "Create and open";
   go.addEventListener("click", async () => { go.disabled = true; try { const id = await createPuppet(name.value.trim().toLowerCase(), type.value, from.value); $("puppetDlg").close(); setStatus("Created " + charLabel(id), "ok"); } catch (e) { renderPuppetDialog({ bad: true, text: e.message || String(e) }); } });
-  nw.append(name, type, from, go); sec("New puppet / Save as", nw);
+  const lab = (t, el) => { const w = document.createElement("label"); w.style.cssText = "display:grid;gap:3px"; const l = document.createElement("span"); l.textContent = t; l.style.cssText = "font:600 10px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)"; w.append(l, el); return w; };
+  nw.append(lab("Name", name), lab("Kind", type), lab("Start from", from), go); sec("New puppet / Save as", nw);
   // 2. this puppet
   const tp = document.createElement("div"); tp.className = "btns";
   const rn = document.createElement("button"); rn.type = "button"; rn.textContent = "Rename parts to the naming convention"; rn.title = "Every part, pivot and polygon name starts with its top-level part (armL > armL shoulder pivot > armL shoulder shade). Undo with Ctrl+Z.";
@@ -1904,6 +1935,15 @@ function renderPuppetDialog(msg) {
   sec("Size of this puppet", tb);
 }
 $("puppetBtn").addEventListener("click", () => { renderPuppetDialog(); $("puppetDlg").showModal(); });
+/* drop-down menus (File, Mirror): the button opens a panel of the controls it holds; a click outside, Escape or choosing something closes it */
+document.querySelectorAll(".menu").forEach(menu => {
+  const b = menu.querySelector(":scope > button"), pop = menu.querySelector(":scope > .menu-pop");
+  const close = () => { pop.hidden = true; b.setAttribute("aria-expanded", "false"); };
+  b.addEventListener("click", e => { e.stopPropagation(); const open = pop.hidden; document.querySelectorAll(".menu-pop").forEach(p => { p.hidden = true; p.parentElement.querySelector(":scope > button").setAttribute("aria-expanded", "false"); }); if (open) { pop.hidden = false; b.setAttribute("aria-expanded", "true"); } });
+  pop.addEventListener("click", e => { if (e.target.closest("button")) setTimeout(close, 0); });
+  document.addEventListener("click", e => { if (!menu.contains(e.target)) close(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !pop.hidden) { close(); b.focus(); } });
+});
 $("pdClose").addEventListener("click", () => $("puppetDlg").close());
 
 /* ---------- boot / switching characters ---------- */
