@@ -115,6 +115,17 @@ table.t { border-collapse: collapse; width: 100%; } table.t th { text-align: lef
 .glance-item span { color: var(--dim); font-size: 12px; }
 .card > .sub { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
 
+/* grouped bars: the header is a pack group and a status group; a row of choices is a segmented control */
+header .hg { display: inline-flex; align-items: center; gap: 8px; padding-right: 12px; border-right: 1px solid var(--line); }
+header .hg.end { border-right: 0; border-left: 1px solid var(--line); padding: 0 0 0 12px; }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.seg button { background: none; border: 0; border-radius: 6px; padding: 5px 12px; color: var(--dim); cursor: pointer; }
+.seg button:hover { color: var(--text); background: var(--panel2); }
+.seg button.on { background: var(--accent); color: #04121c; font-weight: 600; }
+.gl { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--dim); font-weight: 600; }
+@media (max-width: 760px) { header .hg { padding-right: 6px; } header .hg.end { padding-left: 6px; } }
+@media (max-width: 760px) { #app { grid-template-rows: auto auto 1fr; } header { flex-wrap: wrap; padding: 6px 8px; row-gap: 6px; } header .spacer { display: none; } header .hg.end { margin-left: auto; } header .hg { border-right: 0; padding-right: 0; } header .hg.end { border-left: 0; padding-left: 0; } }
+
 </style>
 <style>
 .site-nav{display:inline-flex;gap:4px;align-items:center;margin:0 6px;flex:none}
@@ -126,12 +137,16 @@ table.t { border-collapse: collapse; width: 100%; } table.t th { text-align: lef
 <div id="app">
   <header>
     <span class="logo">SURVIVORATOR <b>STUDIO</b></span><div class="site-nav" role="navigation" aria-label="Studios"><a href="./" aria-current="page">Packs</a><a href="./weapons/">Weapons &amp; Shots</a><a href="./puppets/">Puppets</a><a href="./arena/">Arena</a></div>
-    <select id="packSelect" title="Which game pack you are editing"></select>
-    <button class="btn small" id="newPack" title="Copy this pack under a new name">New pack…</button>
+    <div class="hg" role="group" aria-label="Pack">
+      <select id="packSelect" title="Which game pack you are editing"></select>
+      <button class="btn small" id="newPack" title="Copy this pack under a new name">New pack…</button>
+    </div>
     <span class="spacer"></span>
-    <button class="chip" id="whoBtn" title="Your name, shown next to your saves" data-nopolish>…</button>
-    <span class="chip" id="problemChip" title="Problems the validator found in this pack">…</span>
-    <span class="chip" id="saveChip">…</span>
+    <div class="hg end" role="group" aria-label="Status">
+      <button class="chip" id="whoBtn" title="Your name, shown next to your saves" data-nopolish>…</button>
+      <span class="chip" id="problemChip" title="Problems the validator found in this pack">…</span>
+      <span class="chip" id="saveChip">…</span>
+    </div>
     <button class="btn primary" id="saveBtn" title="Ctrl+S">Save</button>
   </header>
   <nav id="nav"></nav>
@@ -1983,7 +1998,7 @@ function tabAudio() {
   au.sounds = au.sounds || {}; au.events = au.events || {};
   const sec = S.sel.audioSec || "sounds";
   const bar = h("div", { class: "ctl", style: "margin-bottom:12px" });
-  for (const [id, label] of [["sounds", "Sounds"], ["events", "Events"], ["music", "Music"], ["recordings", "Recordings"], ["volume", "Volume"]]) bar.append(h("button", { class: "btn" + (sec === id ? " primary" : ""), onclick: () => { stopPreview(); S.sel.audioSec = id; renderMain(); } }, label));
+  bar.append(h("div", { class: "seg", role: "group", "aria-label": "Audio section" }, [["sounds", "Sounds"], ["events", "Events"], ["music", "Music"], ["recordings", "Recordings"], ["volume", "Volume"]].map(([id, label]) => h("button", { class: sec === id ? "on" : "", onclick: () => { stopPreview(); S.sel.audioSec = id; renderMain(); } }, label))));
   bar.append(h("span", { class: "dim", style: "margin-left:10px" }, `${Object.keys(au.sounds).length} sounds · ${Object.keys(au.events).length} of ${Object.keys(C.audio_events.events).length} events have one · ${Object.keys((au.music || {}).tracks || {}).length} tracks`));
   wrap.append(bar, problemBlock(problemsFor("audio", "")));
   wrap.append({ sounds: audioSounds, events: audioEvents, music: audioMusic, recordings: audioRecordings, volume: audioVolume }[sec](au, f));
@@ -4312,7 +4327,9 @@ const CONTENT_FILES = [["heroes", "Heroes"], ["powers", "Powers"], ["looks", "Po
 function tabContent() {
   const file = S.sel.file || "heroes";
   const wrap = h("div", {}, h("h2", {}, "All content"), h("p", { class: "lead" }, "Every file in the pack, edited field by field. The Enemies, Abilities, Rules and Presets tabs are friendlier for those; this is for everything else (and a raw view of any file)."));
-  const tabs = h("div", { class: "ctl", style: "margin-bottom:12px" }, CONTENT_FILES.map(([f, l]) => h("button", { class: "btn small" + (f === file ? " primary" : ""), onclick: async () => { S.sel.file = f; S.sel.item = null; renderMain(); } }, l)));
+  const fileBtns = list => h("div", { class: "seg", role: "group" }, list.map(([f, l]) => h("button", { class: f === file ? "on" : "", "data-nopolish": /json/.test(l) ? "" : false, onclick: async () => { S.sel.file = f; S.sel.item = null; renderMain(); } }, l)));
+  const unit = (label, list) => h("div", { class: "ctl", style: "gap:8px" }, h("span", { class: "gl" }, label), fileBtns(list));
+  const tabs = h("div", { class: "ctl", style: "margin-bottom:12px;gap:8px 20px" }, unit("Content", CONTENT_FILES.slice(0, 10)), unit("Lists and raw", CONTENT_FILES.slice(10)));
   wrap.append(tabs);
   const data = S.files[file];
   if (!data) { wrap.append(h("p", {}, "That file is not in this pack.")); return wrap; }
