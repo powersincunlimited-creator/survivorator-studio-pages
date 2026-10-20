@@ -137,6 +137,20 @@
   .nav-item.is-edited .edited-dot{visibility:visible}
   .nav-item .nlabel{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 
+  /* grouped bars: related controls sit in a row with a frame or a rule; File and Shape are drop-down menus */
+  .hg{display:inline-flex; align-items:center; gap:6px; padding-right:14px; border-right:1px solid var(--hair)}
+  .tg{display:inline-flex; align-items:center; gap:4px; padding:3px; background:var(--panel); border:1px solid var(--hair-soft); border-radius:8px; flex-wrap:wrap}
+  .tg .btn{padding:4px 9px; font-size:11.5px}
+  .tg select{font-family:var(--font-body); font-size:12px; color:var(--text); background:var(--raised); border:1px solid var(--hair); border-radius:6px; padding:5px 6px}
+  .menu{position:relative; display:inline-block}
+  .menu-pop{position:absolute; left:0; top:calc(100% + 6px); z-index:60; min-width:210px; display:grid; gap:4px; padding:6px; background:var(--raised); border:1px solid var(--hair); border-radius:8px; box-shadow:0 10px 30px #000a}
+  .menu-pop.right{left:auto; right:0}
+  .menu-pop .btn{width:100%; text-align:left}
+  .menu-pop hr{margin:2px 0; border:0; border-top:1px solid var(--hair)}
+  .menu > .btn[aria-expanded="true"]{border-color:var(--cyan); color:var(--cyan)}
+  .parts-head-add .tg .btn{padding:4px 8px}
+  .canvas-toolbar > .tg:last-child{margin-left:auto}
+  @media (max-width: 700px){ .hg{padding-right:8px} .menu-pop.right{left:0; right:auto} .canvas-toolbar > .tg:last-child{margin-left:0} }
   main{flex:1; display:flex; min-width:0; min-height:0}
   .canvas-col{flex:1; display:flex; flex-direction:column; min-width:0; border-right:1px solid var(--hair)}
   .canvas-toolbar{
@@ -335,17 +349,28 @@
     <span class="status-pill" id="statusPill"><span class="dot"></span><span id="statusText">Loading&hellip;</span></span>
     <span class="nickname-label" id="nicknameLabel" title="Click to change your display name">You: &mdash;</span>
     <div class="spacer"></div>
-    <button class="btn" id="btnUndo" disabled title="Undo the last change to this shape (Ctrl+Z)">&#8630; Undo</button>
-    <button class="btn" id="btnRedo" disabled title="Redo (Ctrl+Y)">&#8631; Redo</button>
+    <div class="hg" role="group" aria-label="History"><button class="btn" id="btnUndo" disabled title="Undo the last change to this shape (Ctrl+Z)">&#8630; Undo</button><button class="btn" id="btnRedo" disabled title="Redo (Ctrl+Y)">&#8631; Redo</button></div>
     <button class="btn" id="btnActivity" title="Recent changes across all shapes">Activity</button>
-    <button class="btn" id="btnRefresh" title="Re-fetch the latest saved shapes from the server">&#8635; Refresh</button>
-    <button class="btn" id="btnCopyShape" title="Copy this shape's parts">Copy Shape</button>
-    <button class="btn" id="btnPasteShape" disabled title="Overwrite this shape with the copied one">Paste Shape</button>
-    <button class="btn" id="btnImport" title="Load a shape (or a full export) from a .json file">Import JSON</button>
-    <button class="btn" id="btnExport" title="Just this shape">Export Shape</button>
-    <button class="btn" id="btnExportAll" title="Every shape, seed + your edits">Export All</button>
+    <div class="menu" id="shapeMenu">
+      <button class="btn" id="shapeMenuBtn" type="button" aria-haspopup="menu" aria-expanded="false" title="Copy or paste this shape, or put it back to the one that ships">Shape &#9662;</button>
+      <div class="menu-pop right" role="menu" hidden>
+        <button class="btn" id="btnCopyShape" title="Copy this shape's parts">Copy shape</button>
+        <button class="btn" id="btnPasteShape" disabled title="Overwrite this shape with the copied one">Paste shape</button>
+        <hr>
+        <button class="btn danger" id="btnReset" disabled>Reset shape</button>
+      </div>
+    </div>
+    <div class="menu" id="fileMenu">
+      <button class="btn" id="fileMenuBtn" type="button" aria-haspopup="menu" aria-expanded="false" title="Refresh, import and export">File &#9662;</button>
+      <div class="menu-pop right" role="menu" hidden>
+        <button class="btn" id="btnRefresh" title="Re-fetch the latest saved shapes from the server">Refresh from the server</button>
+        <hr>
+        <button class="btn" id="btnImport" title="Load a shape (or a full export) from a .json file">Import JSON&hellip;</button>
+        <button class="btn" id="btnExport" title="Just this shape">Export shape</button>
+        <button class="btn" id="btnExportAll" title="Every shape, seed + your edits">Export all shapes</button>
+      </div>
+    </div>
     <input type="file" id="importFile" accept="application/json,.json" hidden>
-    <button class="btn danger" id="btnReset" disabled>Reset shape</button>
   </header>
   <div class="import-confirm" id="importConfirm" hidden>
     <p id="importConfirmText"></p>
@@ -374,17 +399,9 @@
           <div class="shape-meta" id="shapeMeta"></div>
           <span class="x-warn" id="crossWarn" hidden title="A polygon whose edges cross itself cannot be drawn by the game (the part vanishes). Red rings mark the crossings."></span>
           <span class="presence-badge" id="presenceBadge" hidden></span>
-          <span class="tool-sep"></span>
-          <button class="btn sm" id="btnShapeFlipH" title="Mirror the whole drawing left-right (about the grip / origin)">&#8596; Flip shape</button>
-          <button class="btn sm" id="btnShapeFlipV" title="Mirror the whole drawing top-bottom (about the grip / origin)">&#8597; Flip shape</button>
-          <button class="btn sm" id="btnShapeRotL" title="Rotate the whole drawing 15 degrees anticlockwise about the origin">&#8634; 15&deg;</button>
-          <button class="btn sm" id="btnShapeRotR" title="Rotate the whole drawing 15 degrees clockwise about the origin">&#8635; 15&deg;</button>
-          <button class="btn sm on" id="btnOutlines" title="Show or hide every part outline in this editor, to see the shapes underneath. View only: the outlines are not changed and the game still draws them.">Outlines</button>
-          <button class="btn sm" id="btnPreview" title="Play every part's motion preset">&#9654; Motion</button>
-          <span class="tool-sep"></span>
-          <button class="btn" id="btnZoomOut">&minus;</button>
-          <button class="btn" id="btnZoomReset">Fit</button>
-          <button class="btn" id="btnZoomIn">&plus;</button>
+          <div class="tg" role="group" aria-label="Turn the whole drawing" title="Turn the whole drawing about its origin"><button class="btn sm" id="btnShapeFlipH" title="Mirror the whole drawing left-right (about the grip / origin)">&#8596; Flip shape</button><button class="btn sm" id="btnShapeFlipV" title="Mirror the whole drawing top-bottom (about the grip / origin)">&#8597; Flip shape</button><button class="btn sm" id="btnShapeRotL" title="Rotate the whole drawing 15 degrees anticlockwise about the origin">&#8634; 15&deg;</button><button class="btn sm" id="btnShapeRotR" title="Rotate the whole drawing 15 degrees clockwise about the origin">&#8635; 15&deg;</button></div>
+          <div class="tg" role="group" aria-label="View"><button class="btn sm on" id="btnOutlines" title="Show or hide every part outline in this editor, to see the shapes underneath. View only: the outlines are not changed and the game still draws them.">Outlines</button><button class="btn sm" id="btnPreview" title="Play every part's motion preset">&#9654; Motion</button></div>
+          <div class="tg" role="group" aria-label="Zoom"><button class="btn" id="btnZoomOut">&minus;</button><button class="btn" id="btnZoomReset">Fit</button><button class="btn" id="btnZoomIn">&plus;</button></div>
         </div>
         <div class="canvas-wrap" id="canvasWrap">
           <svg class="stage" id="stage"></svg>
@@ -395,7 +412,7 @@
         <div class="parts-head">
           <h3>Parts</h3>
           <div class="parts-head-add">
-            <select id="presetSelect" title="Shape to add">
+            <div class="tg" role="group" aria-label="Add a part"><select id="presetSelect" title="Shape to add">
               <option value="square">Square</option>
               <option value="diamond">Diamond</option>
               <option value="triangle">Triangle</option>
@@ -405,11 +422,8 @@
               <option value="circle">Circle</option>
               <option value="oval">Oval (tall)</option>
               <option value="star">Star</option>
-            </select>
-            <button class="btn" id="btnShowAll" hidden title="Show every part you have hidden (editing view only)">Show all</button>
-            <button class="btn" id="btnAddPart">+ Part</button>
-            <button class="btn" id="btnAddPicture" title="A hand-drawn picture from the library as a new part (weapons and shots)">+ Picture…</button>
-            <button class="btn" id="btnOpenAll" title="Show the controls of every part, not only the selected one">Open all</button>
+            </select><button class="btn" id="btnAddPart">+ Part</button><button class="btn" id="btnAddPicture" title="A hand-drawn picture from the library as a new part (weapons and shots)">+ Picture…</button></div>
+            <div class="tg" role="group" aria-label="Show parts"><button class="btn" id="btnShowAll" hidden title="Show every part you have hidden (editing view only)">Show all</button><button class="btn" id="btnOpenAll" title="Show the controls of every part, not only the selected one">Open all</button></div>
           </div>
         </div>
         <div class="meta-panel" id="metaPanel"></div>
@@ -3353,6 +3367,15 @@ function undoRedo(dir){
   applyingUndo = true; try{ saveNow(); } finally { applyingUndo = false; }
   updateUndoButtons();
 }
+/* drop-down menus (Shape, File): the button opens a panel of the controls it holds; a click outside, Escape or choosing something closes it */
+document.querySelectorAll('.menu').forEach(menu => {
+  const b = menu.querySelector(':scope > button'), pop = menu.querySelector(':scope > .menu-pop');
+  const close = () => { pop.hidden = true; b.setAttribute('aria-expanded', 'false'); };
+  b.addEventListener('click', e => { e.stopPropagation(); const open = pop.hidden; document.querySelectorAll('.menu-pop').forEach(p => { p.hidden = true; p.parentElement.querySelector(':scope > button').setAttribute('aria-expanded', 'false'); }); if (open) { pop.hidden = false; b.setAttribute('aria-expanded', 'true'); } });
+  pop.addEventListener('click', e => { if (e.target.closest('button')) setTimeout(close, 0); });
+  document.addEventListener('click', e => { if (!menu.contains(e.target)) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !pop.hidden) { close(); b.focus(); } });
+});
 document.getElementById('btnUndo').addEventListener('click', () => undoRedo(-1));
 document.getElementById('btnRedo').addEventListener('click', () => undoRedo(1));
 window.addEventListener('keydown', e => {
