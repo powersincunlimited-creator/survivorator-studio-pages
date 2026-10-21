@@ -2688,9 +2688,15 @@ function tabAchievements() {
   const startPowers = new Set((S.files.heroes.heroes || []).map(x => x.start_power));
   const open = (S.files.powers.powers || []).filter(p => !unlocked.has(p.id) && !startPowers.has(p.id)).map(p => p.name || p.id);
   starters.append(h("p", { class: "dim" }, open.length ? `Powers no achievement unlocks (fine for rank 1 powers; the game's unlock_check enforces the rest): ${open.join(", ")}` : "Every power is a hero's starting power or unlocked by an achievement."));
+  for (const [label, one, cat] of [["Heroes", "hero", "archetypes"], ["Gear sets", "gear set", "gear_sets"], ["Fusion recipes", "fusion recipe", "fusion_recipes"]]) {
+    const won = new Set(list0.flatMap(x => (x.rewards || []).filter(r => r.category === cat).map(r => r.id)));
+    const start = new Set(st[cat] || []);
+    const stuck = rewardOptions(cat).filter(([id]) => !won.has(id) && !start.has(id)).map(([, nm]) => nm);
+    starters.append(h("p", { class: stuck.length ? "" : "dim", style: stuck.length ? "color:var(--warn)" : "" }, stuck.length ? `${label} that can never be unlocked (not a starter, and no achievement gives them): ${stuck.join(", ")}` : `Every ${one} is a starter or unlocked by an achievement.`));
+  }
   wrap.append(starters, problemBlock(problemsFor("achievements", "").filter(p => !a || !p.includes(a.id + ":"))));
   const list = h("div", { class: "list" });
-  list0.forEach((x, i) => list.append(h("div", { class: "item" + (i === sel ? " on" : ""), onclick: () => { S.sel.ach = i; renderMain(); } }, h("span", {}, x.name || x.id), h("small", {}, "★".repeat(x.rank || 0) + ((x.rewards || []).length ? " 🎁" : "")))));
+  list0.forEach((x, i) => list.append(h("div", { class: "item" + (i === sel ? " on" : ""), title: condText(x) || x.desc || "", onclick: () => { S.sel.ach = i; renderMain(); } }, h("span", {}, x.name || x.id), h("small", {}, "★".repeat(x.rank || 0) + ((x.rewards || []).length ? " 🎁" : "")))));
   list.append(h("div", { class: "tools" },
     h("button", { class: "btn small", onclick: async () => { const id = slug(await ask("ID for the new achievement:") || ""); if (!id || list0.some(x => x.id === id)) return; list0.push({ id, name: id.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()), desc: "Defeat 50 enemies in total.", rank: 1, cond: { type: "stat", stat: "total_kills", min: 50 }, rewards: [] }); S.sel.ach = list0.length - 1; touch(f); re(); } }, "+ New"),
     h("button", { class: "btn small", onclick: async () => { if (!a) return; const id = slug(await ask(`Id for the copy of ${a.id}:`) || ""); if (!id || list0.some(x => x.id === id)) return; const c = clone(a); c.id = id; c.rewards = []; list0.splice(sel + 1, 0, c); S.sel.ach = sel + 1; touch(f); re(); } }, "Copy"),
@@ -2725,10 +2731,10 @@ function tabAchievements() {
     rbox.append(h("button", { class: "btn small", onclick: () => { rewards.push({ category: "powers", id: (rewardOptions("powers")[0] || [""])[0] }); touch(f); re(); } }, "+ reward"));
     form.append(problemBlock(problemsFor("achievements", a.id + ":")),
       h("details", { class: "card", open: true }, h("summary", {}, "The achievement"),
-        row("name", textField(a, "name", f, { after: re })),
-        row("description", [textField(a, "desc", f), h("button", { class: "btn small", onclick: () => { a.desc = condText(a); touch(f); re(); } }, "write it from the goal")], "Shown in the achievements list."),
+        halfRow(row("name", textField(a, "name", f, { after: re }))),
+        row("rank", selectField(a, "rank", f, [1, 2, 3, 4, 5].map(n => [n, "★".repeat(n) + `  (${["easy", "casual", "solid", "hard", "legendary"][n - 1]})`]), { number: true }), "A rank-4 power is unlocked by a rank-4 achievement."),
         row("id", [h("span", {}, a.id), h("span", { class: "unit" }, "(fixed)")]),
-        row("rank", selectField(a, "rank", f, [1, 2, 3, 4, 5].map(n => [n, "★".repeat(n) + `  (${["easy", "casual", "solid", "hard", "legendary"][n - 1]})`]), { number: true }), "A rank-4 power is unlocked by a rank-4 achievement.")),
+        row("description", [textField(a, "desc", f), h("button", { class: "btn small", onclick: () => { a.desc = condText(a); touch(f); re(); } }, "write it from the goal")], "Shown in the achievements list.")),
       h("details", { class: "card", open: true }, h("summary", {}, "The goal"),
         row("goal", typeSel, "What the player has to do."), condRows),
       h("details", { class: "card", open: true }, h("summary", {}, "Unlocks"),
