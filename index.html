@@ -2927,13 +2927,27 @@ function tabEffects() {
 function tabShop() {
   const sh = S.files.shop;
   sh.own_set = sh.own_set || {};
+  const re = () => renderMain();
+  const go = tab => { S.tab = tab; renderNav(); renderMain(); };
   const wrap = h("div", {}, h("h2", {}, "Shop leanings"), h("p", { class: "lead" }, "The shop is not random: it leans toward what fits the hero's build (set completion, class, powers they own). The one thing you set here is each hero's own gear set: offers of that set are likelier for that hero."));
   wrap.append(problemBlock(problemsFor("shop", "")));
-  const sets = Object.entries(S.files.gear.sets || {}).map(([id, s]) => [id, s.name || id]);
-  wrap.append(h("details", { class: "card", open: true }, h("summary", {}, "Each hero's own gear set"), (S.files.heroes.heroes || []).map(x => row(x.name || x.id, selectField(sh.own_set, x.id, "shop", sets, { optional: true, emptyLabel: "(none)" })))));
-  wrap.append(h("p", { class: "dim" }, "How strongly the shop leans grows with the wave (the rules under Rules → Shop and prices and Rules → Loot and rarity change prices and rarity; the lean itself is built in)."));
+  const sets = Object.entries(S.files.gear.sets || {}).map(([id, st]) => [id, st.name || id]);
+  const heroes = S.files.heroes.heroes || [];
+  const setTags = id => { const st = (S.files.gear.sets || {})[id] || {}; return st.tags || (st.tag ? [st.tag] : []); };
+  const fit = hero => {   // does the chosen set share a tag with the hero?
+    const id = sh.own_set[hero.id]; if (!id) return "No gear set chosen: the shop leans only by the hero's build.";
+    const shared = (hero.tags || []).filter(t => setTags(id).includes(t));
+    return `Hero tags: ${(hero.tags || []).join(", ") || "none"}. Set tags: ${setTags(id).join(", ") || "none"}. ${shared.length ? "They share " + shared.join(", ") + "." : "No tag in common."}`;
+  };
+  const chosen = heroes.filter(x => sh.own_set[x.id]).length;
+  wrap.append(h("details", { class: "card", open: true }, h("summary", {}, `Each hero's own gear set (${chosen} of ${heroes.length} chosen)`),
+    heroes.map(x => row(x.name || x.id, selectField(sh.own_set, x.id, "shop", sets, { optional: true, emptyLabel: "(none)", after: re }), fit(x)))));
+  wrap.append(h("details", { class: "card", open: true }, h("summary", {}, "How the rest of the shop leans"),
+    h("p", { class: "dim", style: "margin-top:6px" }, "How strongly the shop leans grows with the wave. The lean itself is built in; what you can change is the prices and the rarity, under Rules."),
+    h("div", { class: "ctl" }, h("button", { class: "btn small", onclick: () => go("rules") }, "Open the Rules tab"), h("button", { class: "btn small", onclick: () => go("gear") }, "Gear sets"), h("button", { class: "btn small", onclick: () => go("heroes") }, "Heroes"))));
   return wrap;
 }
+
 
 /* The Menus and Theme tabs: edit ui.json (design/UI_FORMAT.md) with a live preview that mirrors how the game lays a screen out (scripts/ui_screen.gd).
    The pack's ui.json holds only what differs from the built-in data/ui_default.json (DATA.consts.ui_default): theme keys are merged, a screen the pack describes replaces the built-in one.
