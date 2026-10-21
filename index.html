@@ -2931,17 +2931,26 @@ function tabEffects() {
   const used = layer => [...new Set([...(DATA.consts.vfx_styles[layer] || []), ...Object.values(prof).map(p => p[layer]).filter(Boolean)])];
   wrap.append(...VFX_LAYERS.map(([k]) => h("datalist", { id: "vfx_" + k }, used(k).map(v => h("option", { value: v })))));
   const list = h("div", { class: "list" });
-  for (const x of heroes) list.append(h("div", { class: "item" + (x.id === sel ? " on" : ""), onclick: () => { S.sel.fxHero = x.id; renderMain(); } }, h("span", {}, x.name || x.id), h("small", {}, prof[x.id] ? "has effects" : "none")));
+  const swatch = q => h("span", { class: "dot", style: `width:26px;border-radius:5px;background:linear-gradient(90deg,${q.c1 || "#888"},${q.c2 || "#888"})` });
+  for (const x of heroes) list.append(h("div", { class: "item" + (x.id === sel ? " on" : ""), onclick: () => { S.sel.fxHero = x.id; renderMain(); } }, h("span", { style: "display:flex;align-items:center;gap:7px;min-width:0" }, prof[x.id] ? swatch(prof[x.id]) : h("span", { class: "dot", style: "width:26px;border-radius:5px;background:none;border-style:dashed" }), x.name || x.id), h("small", {}, prof[x.id] ? `${VFX_LAYERS.filter(([k]) => prof[x.id][k] !== undefined).length} styles` : "none")));
   const form = h("div", {});
   const p = prof[sel];
+  // copy another hero's profile (as a start, or over this one)
+  const others = heroes.filter(x => x.id !== sel && prof[x.id]);
+  const copySel = others.length ? h("select", { title: "Copy another hero's effects onto this one" }, h("option", { value: "" }, p ? "Replace with a copy of…" : "Or start from a copy of…"), others.map(x => h("option", { value: x.id }, x.name || x.id))) : null;
+  if (copySel) copySel.addEventListener("change", async () => { if (!copySel.value) return; if (p && !(await sure("Replace this hero's effects with a copy of " + copySel.value + "'s?"))) { copySel.value = ""; return; } prof[sel] = clone(prof[copySel.value]); touch(f); re(); });
   if (!sel) form.append(h("p", { class: "lead" }, "No heroes yet."));
-  else if (!p) form.append(h("p", { class: "lead" }, "This hero has no effects profile."), h("button", { class: "btn primary", onclick: () => { prof[sel] = { c1: "#ffd24a", c2: "#5ee0ff" }; touch(f); re(); } }, "Give it one"));
+  else if (!p) form.append(h("p", { class: "lead" }, "This hero has no effects profile."), h("div", { class: "ctl" }, h("button", { class: "btn primary", onclick: () => { prof[sel] = { c1: "#ffd24a", c2: "#5ee0ff" }; touch(f); re(); } }, "Give it one"), copySel));
   else {
-    form.append(h("details", { class: "card", open: true }, h("summary", {}, "Colours"), row("main colour", colorField(p, "c1", f, { after: re })), row("glow colour", colorField(p, "c2", f, { after: re })),
-      h("div", { class: "ctl", style: "margin:8px 0" }, h("span", { style: `display:inline-block;width:120px;height:24px;border-radius:6px;background:linear-gradient(90deg,${p.c1},${p.c2})` }), h("span", { class: "dim" }, "the pair"))),
-      h("details", { class: "card", open: true }, h("summary", {}, "Styles"), VFX_LAYERS.map(([k, label]) => { const m = label.match(/^([^(]+?)\s*\((.*)\)$/); return row(m ? m[1] : label, selectField(p, k, f, used(k), { optional: true, emptyLabel: "(none)" }), m ? m[2] : null, p[k] !== undefined); })),
-      h("details", { class: "card" }, h("summary", {}, "Tuning"), VFX_TUNING.map(([k, label]) => row(label, numField(p, k, f, { optional: true, min: 0 }), null, p[k] !== undefined)), h("p", { class: "dim" }, "Only the ones a chosen style reads do anything.")),
-      h("button", { class: "btn small danger", onclick: async () => { if (await sure("Remove this hero's effects profile?")) { delete prof[sel]; touch(f); re(); } } }, "Remove its effects"));
+    const layerRows = keys => VFX_LAYERS.filter(([k]) => keys.includes(k)).map(([k, label]) => { const m = label.match(/^([^(]+?)\s*\((.*)\)$/); return row(m ? m[1] : label, selectField(p, k, f, used(k), { optional: true, emptyLabel: "(none)" }), m ? m[2] : null, p[k] !== undefined); });
+    const section = (title, keys, open = true) => { const n = keys.filter(k => p[k] !== undefined).length; return h("details", { class: "card", open }, h("summary", {}, `${title} (${n} of ${keys.length} set)`), layerRows(keys)); };
+    form.append(h("div", { class: "ctl", style: "margin-bottom:10px" }, copySel, h("span", { style: "flex:1" }), h("button", { class: "btn small danger", onclick: async () => { if (await sure("Remove this hero's effects profile?")) { delete prof[sel]; touch(f); re(); } } }, "Remove its effects")),
+      h("details", { class: "card", open: true }, h("summary", {}, "Colours"), row("main colour", colorField(p, "c1", f, { after: re })), row("glow colour", colorField(p, "c2", f, { after: re })),
+        h("div", { class: "ctl", style: "margin:8px 0" }, h("span", { style: `display:inline-block;width:160px;height:24px;border-radius:6px;background:linear-gradient(90deg,${p.c1},${p.c2})` }), h("span", { class: "dim" }, "the pair"))),
+      section("Always on", ["aura", "motion"]),
+      section("When it attacks", ["cast", "impact", "crit", "summon", "deploy"]),
+      section("When something happens to the hero", ["level_up", "low_hp", "dodge", "hurt", "heal"]),
+      h("details", { class: "card" }, h("summary", {}, "Tuning"), VFX_TUNING.map(([k, label]) => row(label, numField(p, k, f, { optional: true, min: 0 }), null, p[k] !== undefined)), h("p", { class: "dim" }, "Only the ones a chosen style reads do anything.")));
   }
   wrap.append(h("div", { class: "split" }, list, form));
   return wrap;
