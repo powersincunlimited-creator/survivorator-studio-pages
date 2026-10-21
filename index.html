@@ -2763,9 +2763,13 @@ function tabBosses() {
   const b = bs.find(x => x.id === sel);
   const re = () => renderMain();
   const wrap = h("div", {}, h("h2", {}, "Bosses"), h("p", { class: "lead" }, "Named villains that close out every Nth wave: when the wave timer ends the boss walks in. After the list has been used up it starts again, tougher. Defeating one pays a bounty, a fusion charge and an item, and unlocks its signature power through an achievement."));
-  wrap.append(row("a boss every", [numField(S.files.bosses, "every", f, { integer: true, min: 1 }), h("span", { class: "unit" }, "waves (the list cycles in order)")]));
+  const every = S.files.bosses.every || 5;
+  const appearances = bs.length ? [1, 2, 3, 4, 5, 6].map(n => { const b = bs[(n - 1) % bs.length], round = Math.floor((n - 1) / bs.length) + 1; return h("span", { class: "tag", title: round > 1 ? "The list has been used up once: this one comes back tougher" : "" }, `Wave ${n * every}: ${b.name || b.id}${round > 1 ? " (tougher)" : ""}`); }) : null;
+  wrap.append(h("details", { class: "card", open: true }, h("summary", {}, "The schedule"),
+    row("a boss every", [numField(S.files.bosses, "every", f, { integer: true, min: 1, after: re }), h("span", { class: "unit" }, "waves (the list cycles in order)")]),
+    appearances ? h("div", { class: "ctl", style: "margin-top:6px" }, h("span", { class: "dim" }, "The next bosses:"), appearances) : h("p", { class: "dim" }, "No bosses yet.")));
   const list = h("div", { class: "list" });
-  for (const x of bs) list.append(h("div", { class: "item" + (x.id === sel ? " on" : ""), onclick: () => { S.sel.boss = x.id; renderMain(); } }, h("span", {}, x.name || x.id), h("small", {}, "wave " + x.wave)));
+  for (const x of bs) list.append(h("div", { class: "item" + (x.id === sel ? " on" : ""), onclick: () => { S.sel.boss = x.id; renderMain(); } }, h("span", { style: "display:flex;align-items:center;gap:7px;min-width:0" }, h("span", { class: "dot", style: "background:" + (x.color || "#888") }), x.name || x.id), h("small", {}, "★".repeat(x.rank || 0) + " · wave " + x.wave)));
   list.append(h("div", { class: "tools" },
     h("button", { class: "btn small", onclick: async () => { const id = slug(await ask("ID for the new boss:") || ""); if (!id || bs.some(x => x.id === id)) return; bs.push({ id, name: id.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()), alias: "The Newcomer", wave: (bs.length + 1) * (S.files.bosses.every || 5), rank: 3, hp: 400, speed: 64, damage: 12, radius: 28, color: "#cc6633", shape: "enforcer", abilities: [{ name: "slam", cd: 6, windup: 1, radius: 160, damage: 18, trigger: 190 }], signature: ids("powers", "powers")[0], bounty: 120 }); S.sel.boss = id; touch(f); re(); } }, "+ New"),
     h("button", { class: "btn small", onclick: async () => { if (!b) return; const id = slug(await ask(`Id for the copy of ${b.id}:`) || ""); if (!id || bs.some(x => x.id === id)) return; const c = clone(b); c.id = id; c.name += " 2"; bs.splice(bs.indexOf(b) + 1, 0, c); S.sel.boss = id; touch(f); re(); } }, "Copy"),
@@ -2774,7 +2778,7 @@ function tabBosses() {
   if (b) {
     form.append(problemBlock(problemsFor("bosses", b.id + ":")),
       h("details", { class: "card", open: true }, h("summary", {}, "Who they are"),
-        row("name", textField(b, "name", f, { after: re })), row("alias", textField(b, "alias", f), "The subtitle on the wanted poster."),
+        halfRow(row("name", textField(b, "name", f, { after: re }))), row("alias", textField(b, "alias", f), "The subtitle on the wanted poster."),
         row("id", [h("span", {}, b.id), h("span", { class: "unit" }, "(fixed)")]),
         row("rank", selectField(b, "rank", f, [1, 2, 3, 4, 5].map(n => [n, "★".repeat(n)]), { number: true }), "The difficulty: also the rank of its signature power."),
         row("first wave", [numField(b, "wave", f, { integer: true, min: 1 }), h("span", { class: "unit" }, "(informational)")], "The order of the list decides which boss comes when.")),
@@ -2808,7 +2812,7 @@ function bossAbilities(b, f, re) {
     const sel = h("select", {}, kinds.map(k => h("option", { value: k }, k)));
     sel.value = a.name;
     sel.addEventListener("change", () => { const keep = { name: sel.value, cd: a.cd ?? 6, windup: a.windup ?? 1, trigger: a.trigger ?? 300 }; for (const [k, d] of BOSS_ABILITY_FIELDS[sel.value] || []) keep[k] = d; if (sel.value === "summon") keep.add = (S.files.enemies.order || [])[0]; abs[i] = keep; touch(f); re(); });
-    const box = h("div", { class: "card", style: "background:var(--panel2)" }, row("ability", [sel, h("button", { class: "btn small", onclick: () => { abs.splice(i, 1); touch(f); re(); } }, "remove")], BOSS_ABILITY_HELP[a.name]),
+    const box = h("details", { class: "card", open: true, style: "background:var(--panel2)" }, h("summary", {}, `Ability ${i + 1}: ${a.name}`), row("ability", [sel, h("button", { class: "btn small", onclick: () => { abs.splice(i, 1); touch(f); re(); } }, "remove")], BOSS_ABILITY_HELP[a.name]),
       row("cooldown", [numField(a, "cd", f, { min: 0.5 }), h("span", { class: "unit" }, "s")]), row("windup", [numField(a, "windup", f, { min: 0.1 }), h("span", { class: "unit" }, "seconds of warning")]), row("trigger", [numField(a, "trigger", f, { min: 0 }), h("span", { class: "unit" }, "px: starts when a hero is this close")]),
       (BOSS_ABILITY_FIELDS[a.name] || []).map(([k, d, unit, whole]) => row(k, [numField(a, k, f, { integer: whole, min: 0 }), h("span", { class: "unit" }, unit)])),
       a.name === "summon" ? row("add", selectField(a, "add", f, (S.files.enemies.order || []).filter(k => k !== "wanted")), "Which henchman kind it calls.") : null);
