@@ -129,6 +129,7 @@ header .hg.end { border-right: 0; border-left: 1px solid var(--line); padding: 0
 .cgrid.three .ctl > span[style*="min-width"] { min-width: 96px !important; }   /* a stat name needs less room when three editors sit side by side */
 a.tag { color: var(--accent); text-decoration: none; cursor: pointer; }
 a.tag:hover { border-color: var(--accent); }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; border: 1px solid #ffffff44; }
 
 </style>
 <style>
@@ -4188,7 +4189,7 @@ function tabEnemies() {
   S.sel.enemy = sel;
   const wrap = h("div", {}, h("h2", {}, "Enemies"), h("p", { class: "lead" }, "Every enemy kind and how it behaves: its numbers, how it notices and moves, its special attack, traits, what happens when it dies, and how often it spawns. The last kind, 'wanted', is the boss placeholder and stays last."));
   const list = h("div", { class: "list" });
-  for (const id of en.order) list.append(h("div", { class: "item" + (id === sel ? " on" : ""), onclick: async () => { S.sel.enemy = id; renderMain(); } }, h("span", {}, id), h("small", {}, id === "wanted" ? "boss" : (en.kinds[id].stats || {}).hp + " hp")));
+  for (const id of en.order) list.append(h("div", { class: "item" + (id === sel ? " on" : ""), onclick: async () => { S.sel.enemy = id; renderMain(); } }, h("span", { style: "display:flex;align-items:center;gap:7px;min-width:0" }, h("span", { class: "dot", style: "background:" + (((en.kinds[id].stats || {}).color) || "#888") }), id), h("small", {}, id === "wanted" ? "boss" : `${(en.kinds[id].stats || {}).hp} hp · ${(en.kinds[id].stats || {}).damage ?? "?"} dmg`)));
   list.append(h("div", { class: "tools" },
     h("button", { class: "btn small", onclick: async () => { const n = slug(await ask("ID for the new enemy kind:") || ""); if (!n) return; if (en.kinds[n]) { toast("That id exists"); return; } en.kinds[n] = NEW_KIND(); en.order.splice(en.order.length - 1, 0, n); S.sel.enemy = n; touch("enemies"); renderMain(); } }, "+ New"),
     h("button", { class: "btn small", onclick: async () => { const n = slug(await ask(`Id for the copy of ${sel}:`) || ""); if (!n || sel === "wanted") return; if (en.kinds[n]) { toast("That id exists"); return; } en.kinds[n] = clone(en.kinds[sel]); en.order.splice(en.order.indexOf(sel) + 1, 0, n); S.sel.enemy = n; touch("enemies"); renderMain(); } }, "Copy"),
@@ -4196,7 +4197,7 @@ function tabEnemies() {
     h("button", { class: "btn small", onclick: async () => { const i = en.order.indexOf(sel); if (i < en.order.length - 2 && sel !== "wanted") { [en.order[i + 1], en.order[i]] = [en.order[i], en.order[i + 1]]; touch("enemies"); renderMain(); } } }, "▼"),
     h("button", { class: "btn small danger", onclick: async () => { if (sel === "wanted") return; if (await sure(`Delete the enemy kind '${sel}'?`)) { delete en.kinds[sel]; en.order = en.order.filter(x => x !== sel); S.sel.enemy = en.order[0]; touch("enemies"); renderMain(); } } }, "Delete")));
   const form = h("div", {}, kindForm(en, sel));
-  wrap.append(h("div", { class: "split" }, list, form), h("h3", {}, "Spawning"), spawnEditor(en));
+  wrap.append(h("div", { class: "split" }, list, form), spawnEditor(en));
   return wrap;
 }
 
@@ -4270,7 +4271,7 @@ function spawnEditor(en) {
   const f = "enemies";
   const sp = en.spawn = en.spawn || {};
   const useWeights = Array.isArray(sp.weights) && sp.weights.length > 0;
-  const wrap = h("div", { class: "card", style: "overflow-x:auto" });   // (the table scrolls on a phone instead of widening the page)
+  const wrap = h("details", { class: "card", open: true, style: "overflow-x:auto" }, h("summary", {}, "Spawning: which enemy comes next"));   // (the table scrolls on a phone instead of widening the page)
   const mode = h("select", {}, [["roll", "chance chain (the older way)"], ["weights", "weights (drawn in proportion)"]].map(([v, l]) => h("option", { value: v }, l)));
   mode.value = useWeights ? "weights" : "roll";
   mode.addEventListener("change", () => { if (mode.value === "weights") { sp.weights = sp.weights?.length ? sp.weights : [{ kind: sp.default || "grunt", weight: 1 }]; sp.roll = []; } else { sp.weights = []; } touch(f); renderMain(); });
