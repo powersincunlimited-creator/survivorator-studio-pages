@@ -2607,7 +2607,7 @@ function tabTalents() {
   const re = () => renderMain();
   const wrap = h("div", {}, h("h2", {}, "Talents"), h("p", { class: "lead" }, "The stat boosts a level-up offers. Each is one stat and an amount at common rarity; a better rarity multiplies it. Each level-up shows a few of these at random."));
   const list = h("div", { class: "list" });
-  ts.forEach((x, i) => list.append(h("div", { class: "item" + (i === sel ? " on" : ""), onclick: () => { S.sel.talent = i; renderMain(); } }, h("span", {}, x.name), h("small", {}, statLabel(x.stat)))));
+  ts.forEach((x, i) => list.append(h("div", { class: "item" + (i === sel ? " on" : ""), onclick: () => { S.sel.talent = i; renderMain(); } }, h("span", {}, x.name), h("small", {}, `${x.amount > 0 ? "+" : ""}${fmtStat(x.stat, x.amount)} ${statLabel(x.stat).replace(/ %$/, "")}`))));
   list.append(h("div", { class: "tools" },
     h("button", { class: "btn small", onclick: async () => { const n = (await ask("Name for the new talent:") || "").trim(); if (!n) return; ts.push({ name: n, desc: "+10 Max HP", stat: "max_hp", amount: 10 }); S.sel.talent = ts.length - 1; touch(f); re(); } }, "+ New"),
     h("button", { class: "btn small", onclick: () => { if (!t) return; const c = clone(t); c.name += " 2"; ts.splice(sel + 1, 0, c); S.sel.talent = sel + 1; touch(f); re(); } }, "Copy"),
@@ -2616,12 +2616,11 @@ function tabTalents() {
   if (t) {
     const desc = () => `${(t.amount > 0 ? "+" : "")}${fmtStat(t.stat, t.amount)} ${statLabel(t.stat).replace(/ %$/, "")}`;
     form.append(problemBlock(problemsFor("talents", t.name + ":")), h("details", { class: "card", open: true }, h("summary", {}, "The talent"),
-      row("name", textField(t, "name", f, { after: re })),
-      row("description", [textField(t, "desc", f), h("button", { class: "btn small", onclick: () => { t.desc = desc(); touch(f); re(); } }, "write it from the numbers")], "Shown on the card (the level-up screen builds its own number line from the stat and amount)."),
-      row("offensive", boolField(t, "offense", f, { optional: true }), "Marks a damage-dealing boost (used by the balance tools).")),
-      h("details", { class: "card", open: true }, h("summary", {}, "What it gives"),
+      halfRow(row("name", textField(t, "name", f, { after: re }))),
       row("stat", selectField(t, "stat", f, C.stats.map(s => [s, statLabel(s)]), { after: re })),
-      row("amount", [numField(t, "amount", f, { after: re }), h("span", { class: "unit" }, isPct(t.stat) ? `a fraction: 0.12 = 12%  → ${fmtStat(t.stat, t.amount)}` : "added to the stat")], "At common rarity.")));
+      row("amount", [numField(t, "amount", f, { after: re }), h("span", { class: "unit" }, isPct(t.stat) ? `a fraction: 0.12 = 12%  → ${fmtStat(t.stat, t.amount)}` : "added to the stat")], "At common rarity."),
+      row("offensive", boolField(t, "offense", f, { optional: true }), "Marks a damage-dealing boost (used by the balance tools)."),
+      row("description", [textField(t, "desc", f), h("button", { class: "btn small", onclick: () => { t.desc = desc(); touch(f); re(); } }, "write it from the numbers")], "Shown on the card (the level-up screen builds its own number line from the stat and amount).")));
     const mult = rarityMult();
     const tb = h("table", { class: "t" }, h("tr", {}, ["rarity", "multiplier", "gives"].map(x => h("th", {}, x))));
     mult.forEach((m, i) => tb.append(h("tr", {}, h("td", {}, RARITY_NAMES[i]), h("td", {}, "x" + m), h("td", {}, h("b", {}, (t.amount > 0 ? "+" : "") + fmtStat(t.stat, t.amount * m))))));
