@@ -1128,7 +1128,7 @@ const TP_SKIP = "code, pre, kbd, textarea, script, style, svg, canvas, [data-nop
 /* [selector, kind]: key = a field or module name; title = a heading, button or option; sentence = a description; unit = a short note after a field */
 const TP_RULES = [
   [".row > label, label, legend, .fl, .nm, .mod-name, .prm .nm, .lbl, .kv > b", "key"],
-  ["h2, h3, h1 small, summary, th, .part-type, .sub, .grp, .sec, .used-by, .pal-swatch, .ty, #puppetDlg td:first-child", "title"],
+  [".list .item small, h2, h3, h1 small, summary, th, .part-type, .sub, .grp, .sec, .used-by, .pal-swatch, .ty, #puppetDlg td:first-child", "title"],
   ["button, .btn, option, .tag, .chip", "title"],
   [".hint, p.lead, p.dim, .lead, .toast, .mod-desc, .mod-needs, .ds, .pill, #statusText, #editHint, #hintBar, .parts-hint, .help, .mf, .dim, small, .dlg p, .drop-text", "sentence"],
   [".unit", "unit"],
@@ -2434,7 +2434,7 @@ function tabPowers() {
     const f2 = (S.sel.powerFilter || "").toLowerCase();
     for (const x of ps) {
       if (f2 && !(`${x.id} ${x.name} ${x.shape}`.toLowerCase().includes(f2))) continue;
-      itemsBox.append(h("div", { class: "item" + (x.id === sel ? " on" : ""), onclick: () => { S.sel.power = x.id; renderMain(); } }, h("span", {}, x.name || x.id), h("small", {}, (SHAPE_INFO[x.shape] || {}).label || x.shape)));
+      itemsBox.append(h("div", { class: "item" + (x.id === sel ? " on" : ""), onclick: () => { S.sel.power = x.id; renderMain(); } }, h("span", {}, x.name || x.id), h("small", {}, ((SHAPE_INFO[x.shape] || {}).label || x.shape) + (dpsOf(x) !== null ? " · " + dpsOf(x).toFixed(0) + " dps" : ""))));
     }
   };
   drawItems();
@@ -2464,7 +2464,7 @@ function powerForm(p, f = "powers", opts = {}) {
   const out = h("div", {});
   if (!opts.noProblems) out.append(problemBlock(problemsFor("powers", p.id + ":")));
   out.append(h("details", { class: "card", open: true }, h("summary", {}, "The basics"),
-    row("name", textField(p, "name", f, { after: re })),
+    halfRow(row("name", textField(p, "name", f, { after: re }))),
     opts.noId ? null : row("id", [h("span", {}, p.id), h("span", { class: "unit" }, "(fixed: heroes, bosses and looks refer to it)")]),
     row("delivery shape", selectField(p, "shape", f, C.shapes.map(s => [s, `${(SHAPE_INFO[s] || {}).label || s}  (${s})`]), { after: () => { for (const [k, d] of (SHAPE_INFO[p.shape] || { fields: [] }).fields) if (p[k] === undefined) p[k] = d; re(); } }), info.help),
     row("tags", tagPicker(p, "tags", f))));
@@ -2501,6 +2501,12 @@ function powerForm(p, f = "powers", opts = {}) {
   return out;
 }
 
+/* damage per second against one enemy at common rarity, or null when the power has no cooldown or tick to divide by */
+function dpsOf(p) {
+  const gap = p.cooldown > 0 ? p.cooldown : (p.tick > 0 ? p.tick : 0);
+  if (!gap) return null;
+  return (Number(p.damage) || 0) * (p.pellets > 1 ? p.pellets : 1) * (p.beams > 1 ? p.beams : 1) / gap;
+}
 function estimate(p) {
   const dmg = Number(p.damage) || 0;
   const gap = p.cooldown > 0 ? p.cooldown : (p.tick > 0 ? p.tick : 0);
