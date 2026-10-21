@@ -2326,6 +2326,9 @@ function statEditor(stats, file, redraw) {
 // ================================================================ HEROES
 const KEY_STATS = ["max_hp", "move_speed", "armor", "damage_pct", "attack_speed_pct", "crit_chance", "luck", "pickup_radius"];
 
+/* a row that keeps to half the width of its section, so two sit side by side */
+function halfRow(r) { r.classList.add("half"); return r; }
+
 function tabHeroes() {
   const hs = S.files.heroes.heroes;
   const f = "heroes";
@@ -2368,14 +2371,14 @@ function tabHeroes() {
     const re = () => renderMain();
     form.append(problemBlock(problemsFor("heroes", hero.id + ":")),
       h("details", { class: "card", open: true }, h("summary", {}, "Who they are"),
-        row("id", [h("span", {}, hero.id), h("span", { class: "unit" }, "(fixed: the puppet and unlocks refer to it)")]), row("name", textField(hero, "name", f, { after: re })), row("blurb", textField(hero, "blurb", f), "One line shown on the select screen."),
+        halfRow(row("name", textField(hero, "name", f, { after: re }))), row("id", [h("span", {}, hero.id), h("span", { class: "unit" }, "(fixed: the puppet and unlocks refer to it)")]), row("blurb", textField(hero, "blurb", f), "One line shown on the select screen."),
         row("tags", tagPicker(hero, "tags", f))),
       h("details", { class: "card", open: true }, h("summary", {}, "Starting kit"),
         row("start power", selectField(hero, "start_power", f, (S.files.powers.powers || []).map(p => [p.id, `${p.name || p.id}  (${(SHAPE_INFO[p.shape] || {}).label || p.shape})`]), { after: re }), "The power they begin every run with (it unlocks with the hero)."),
         row("ability", selectField(hero, "ability", f, ids("abilities", "abilities").map(i => [i, ((S.files.abilities.abilities || []).find(a => a.id === i) || {}).name + `  (${i})`]), { optional: true, emptyLabel: `(the default: ${(((S.files.game.rules || {}).hero || {}).ability_default) ?? "roll"})` }), "The ability button."),
         row("gear set leaning", selectField(S.files.shop.own_set = S.files.shop.own_set || {}, hero.id, "shop", Object.keys(S.files.gear.sets || {}).map(i => [i, (S.files.gear.sets[i].name || i)]), { optional: true, emptyLabel: "(none)" }), "The shop leans toward this set for this hero."),
         row("starts unlocked", (() => { const st = (S.files.achievements.starters = S.files.achievements.starters || {}); st.archetypes = st.archetypes || []; const c = h("input", { type: "checkbox", checked: st.archetypes.includes(hero.id) }); c.addEventListener("change", () => { if (c.checked) { if (!st.archetypes.includes(hero.id)) st.archetypes.push(hero.id); } else st.archetypes = st.archetypes.filter(x => x !== hero.id); touch("achievements"); }); return c; })(), "A new profile can pick this hero from the start (otherwise an achievement unlocks it).")),
-      h("details", { class: "card", open: true }, h("summary", {}, "Stat leanings"), h("p", { class: "dim" }, "Added to the game's base stats. Percent stats are fractions (0.10 = 10%)."), statEditor(hero.stats = hero.stats || {}, f, re), heroSheet(hero)),
+      h("details", { class: "card", open: true }, h("summary", {}, "Stat leanings"), h("p", { class: "dim" }, "Added to the game's base stats. Percent stats are fractions (0.10 = 10%)."), h("div", { class: "two-up" }, h("div", {}, statEditor(hero.stats = hero.stats || {}, f, re)), heroSheet(hero))),
       h("details", { class: "card" }, h("summary", {}, "Puppet and effects"),
         row("puppet", (S.files.puppets.puppets || []).includes("hero_" + hero.id) ? h("span", { class: "chip ok" }, `hero_${hero.id} is listed`) : [h("span", { class: "chip bad" }, "not listed"), h("button", { class: "btn small", onclick: () => { S.files.puppets.puppets.push("hero_" + hero.id); touch("puppets"); renderMain(); } }, "list it")], "The drawing itself is made in Puppet Studio and lives in the game."),
         row("hero effects", (S.files.hero_effects.profiles || {})[hero.id] ? h("span", { class: "chip ok" }, "has an effects profile") : h("span", { class: "dim" }, "none (the hero has no aura / trail effects)"), "Edit under All content → Hero effects.")));
@@ -2392,7 +2395,7 @@ function heroSheet(hero) {
     const b = base[k] ?? 0, d = (hero.stats || {})[k] ?? 0;
     t.append(h("tr", { class: d ? "" : "dim" }, h("td", {}, statLabel(k)), h("td", {}, fmtStat(k, b)), h("td", {}, d ? (d > 0 ? "+" : "") + fmtStat(k, d) : "·"), h("td", {}, h("b", {}, fmtStat(k, b + d)))));
   }
-  return h("div", { style: "margin-top:10px" }, h("div", { class: "dim", style: "margin-bottom:4px" }, "What this hero starts a run with (the Starting stats rule can change the base):"), t);
+  return h("div", {}, h("div", { class: "dim", style: "margin-bottom:4px" }, "What this hero starts a run with (the Starting stats rule can change the base):"), t);
 }
 
 // ================================================================ POWERS
