@@ -2842,22 +2842,26 @@ function tabFusion() {
   const re = () => renderMain();
   const wrap = h("div", {}, h("h2", {}, "Fusion"), h("p", { class: "lead" }, "Fusing two powers makes a new one. A pair you describe here becomes a hand-made recipe with its own numbers; any other pair is blended automatically and named from the naming words below."));
   wrap.append(problemBlock(problemsFor("fusion", "")));
+  const nPowers = (S.files.powers.powers || []).length, nPairs = nPowers * (nPowers - 1) / 2;
+  wrap.append(h("p", { class: "dim", style: "margin:-6px 0 12px" }, `${keys.length} hand-made recipe${keys.length === 1 ? "" : "s"} of ${nPairs} possible pair${nPairs === 1 ? "" : "s"}; every other pair is blended automatically.`));
   const list = h("div", { class: "list" });
   for (const k of keys) list.append(h("div", { class: "item" + (k === sel ? " on" : ""), onclick: () => { S.sel.recipe = k; renderMain(); } }, h("span", {}, fu.recipes[k].name || k), h("small", {}, k.split("+").map(powerName).join(" + "))));
   const ps = (S.files.powers.powers || []).map(p => [p.id, p.name || p.id]);
-  list.append(h("div", { class: "tools" },
+  const pickPower = i => { const x = h("select", { title: "A power of the pair", style: "flex:1;min-width:0" }, ps.map(([id, nm]) => h("option", { value: id }, nm))); if (ps[i]) x.value = ps[i][0]; return x; };
+  const selA = pickPower(0), selB = pickPower(1);
+  list.append(h("div", { class: "tools" }, h("div", { class: "ctl", style: "flex:1 1 100%;gap:4px;flex-wrap:nowrap" }, selA, h("span", { class: "dim" }, "+"), selB),
     h("button", { class: "btn small", onclick: async () => {
-      const a = await ask("First power ID of the pair (" + ps.map(x => x[0]).join(", ") + "):"); const b2 = a ? await ask("Second power id:") : null;
-      if (!a || !b2 || a === b2 || !ps.some(x => x[0] === a) || !ps.some(x => x[0] === b2)) { toast("Need two different power IDs from the list"); return; }
+      const a = selA.value, b2 = selB.value;
+      if (!a || !b2 || a === b2) { toast("Pick two different powers for the pair"); return; }
       const key = [a, b2].sort().join("+"); if (fu.recipes[key]) { toast("That pair already has a recipe"); return; }
       const base = clone((S.files.powers.powers || []).find(p => p.id === a)); delete base.id; delete base.starter_only; base.name = `${powerName(a)} + ${powerName(b2)}`; base.tags = [...new Set([...(base.tags || []), ...(((S.files.powers.powers || []).find(p => p.id === b2) || {}).tags || [])])].slice(0, 3);
       fu.recipes[key] = base; S.sel.recipe = key; touch(f); re();
-    } }, "+ New"),
+    } }, "+ New recipe"),
     h("button", { class: "btn small danger", onclick: async () => { if (!sel || !(await sure(`Delete the recipe '${sel}'?`))) return; delete fu.recipes[sel]; const st = (S.files.achievements.starters || {}); if (st.fusion_recipes) { st.fusion_recipes = st.fusion_recipes.filter(x => x !== sel); touch("achievements"); } S.sel.recipe = null; touch(f); re(); } }, "Delete")));
   const form = h("div", {});
   if (sel) {
     const r = fu.recipes[sel];
-    form.append(h("div", { class: "ctl", style: "margin-bottom:8px" }, h("b", {}, "The pair"), sel.split("+").map((id, i) => [i ? h("span", { class: "dim" }, "+") : null, h("span", { class: "tag" }, powerName(id))]), h("span", { class: "dim" }, "gives:")), powerForm(r, f, { noId: true, noProblems: true }));
+    form.append(h("div", { class: "ctl", style: "margin-bottom:8px" }, h("b", {}, "The pair"), sel.split("+").map((id, i) => [i ? h("span", { class: "dim" }, "+") : null, h("a", { href: "#", class: "tag", title: "Open this power", onclick: e => { e.preventDefault(); S.sel.power = id; S.tab = "powers"; renderNav(); renderMain(); } }, powerName(id))]), h("span", { class: "dim" }, "gives:")), powerForm(r, f, { noId: true, noProblems: true }));
   } else form.append(h("p", { class: "lead" }, "No hand-made recipes: every pair is blended automatically."));
   wrap.append(h("div", { class: "split" }, list, form));
   // naming words
