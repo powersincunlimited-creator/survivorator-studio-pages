@@ -131,6 +131,10 @@ a.tag { color: var(--accent); text-decoration: none; cursor: pointer; }
 a.tag:hover { border-color: var(--accent); }
 .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; border: 1px solid #ffffff44; }
 
+table.looks td { padding: 3px 5px; } table.looks input { background: var(--input); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; }
+table.looks input.set { border-color: #5ec8ff66; color: var(--text); } table.looks input.odd { border-color: var(--warn); }
+a.btn { text-decoration: none; color: var(--text); display: inline-block; }
+
 </style>
 <style>
 .site-nav{display:inline-flex;gap:4px;align-items:center;margin:0 6px;flex:none}
@@ -2880,15 +2884,35 @@ function tabLooks() {
   const wrap = h("div", {}, h("h2", {}, "Power looks"), h("p", { class: "lead" }, "How each power looks in the world: the prop or glow the hero holds, the look of the shot that flies, and the little burst where it hits. A blank cell means none (no held prop, the plain bullet, no burst). Draw new weapons and shots in the Weapon & Shot studio; this just picks them."));
   wrap.append(h("datalist", { id: "weaponKinds" }, DATA.consts.weapon_kinds.map(k => h("option", { value: k }))), h("datalist", { id: "shotVisuals" }, DATA.consts.shot_visuals.map(k => h("option", { value: k }))), h("datalist", { id: "impactKeys" }, DATA.consts.impact_keys.map(k => h("option", { value: k }))));
   wrap.append(problemBlock(problemsFor("looks", "")));
-  const t = h("table", { class: "t" }, h("tr", {}, ["Power", "Shape", "Held weapon / glow", "Shot look", "Hit burst"].map(x => h("th", {}, x))));
-  const cell = (table, id, list) => { const i = h("input", { type: "text", list, value: lk[table][id] || "", style: "width:170px" }); i.addEventListener("change", () => { if (i.value.trim()) lk[table][id] = i.value.trim(); else delete lk[table][id]; touch(f); }); return h("td", {}, i); };
+  const COLS = [["weapon", "Held weapon / glow", "weaponKinds", DATA.consts.weapon_kinds, "The prop or glow the hero holds while using the power."], ["projectile_visual", "Shot look", "shotVisuals", DATA.consts.shot_visuals, "What the shot looks like as it flies."], ["projectile_impact", "Hit burst", "impactKeys", DATA.consts.impact_keys, "The little burst where it hits."]];
+  const t = h("table", { class: "t looks" }, h("tr", {}, [h("th", {}, "Power"), h("th", {}, "Shape"), ...COLS.map(([, label, , , tip]) => h("th", { title: tip }, label)), h("th", {}, "Set")]));
   const allPowers = S.files.powers.powers || [];
-  const custom = allPowers.filter(p => ["weapon", "projectile_visual", "projectile_impact"].some(k => lk[k][p.id])).length;
+  const setCount = p => COLS.filter(([k]) => lk[k][p.id]).length;
+  const cell = (key, id, list, known, tip) => {
+    const i = h("input", { type: "text", list, value: lk[key][id] || "", placeholder: "(none)", style: "width:100%;min-width:140px" });
+    const mark = () => { const v = i.value.trim(); i.classList.toggle("set", !!v); i.classList.toggle("odd", !!v && !known.includes(v)); i.title = v && !known.includes(v) ? "Not a name the game knows: it may draw nothing. Pick one from the list, or one drawn in the Weapon & Shot studio." : tip; };
+    i.addEventListener("input", mark);
+    i.addEventListener("change", () => { if (i.value.trim()) lk[key][id] = i.value.trim(); else delete lk[key][id]; touch(f); mark(); count(id); });
+    mark();
+    return h("td", {}, i);
+  };
+  const counts = {};
+  const count = id => { const p = allPowers.find(x => x.id === id); if (counts[id] && p) counts[id].textContent = `${setCount(p)}/3`; summary.textContent = `${allPowers.filter(x => setCount(x) > 0).length} of ${allPowers.length} have a look of their own`; };
+  const summary = h("span", { class: "dim" }, "");
+  let mode = S.sel.looksMode || "all";
+  const apply = () => { const q = (S.sel.looksFilter || "").trim().toLowerCase(); for (const tr of t.querySelectorAll("tr[data-p]")) { const p = allPowers.find(x => x.id === tr.dataset.id); const n = p ? setCount(p) : 0; tr.style.display = (!q || tr.dataset.p.includes(q)) && (mode === "all" || (mode === "with" ? n > 0 : n === 0)) ? "" : "none"; } };
   const filter = h("input", { type: "text", placeholder: "filter powers…", style: "width:220px", value: S.sel.looksFilter || "" });
-  filter.addEventListener("input", () => { S.sel.looksFilter = filter.value; const q = filter.value.trim().toLowerCase(); for (const tr of t.querySelectorAll("tr[data-p]")) tr.style.display = !q || tr.dataset.p.includes(q) ? "" : "none"; });
-  for (const p of allPowers) t.append(h("tr", { "data-p": `${p.id} ${p.name || ""} ${p.shape}`.toLowerCase() }, h("td", {}, p.name || p.id), h("td", { class: "dim" }, (SHAPE_INFO[p.shape] || {}).label || p.shape), cell("weapon", p.id, "weaponKinds"), cell("projectile_visual", p.id, "shotVisuals"), cell("projectile_impact", p.id, "impactKeys")));
-  wrap.append(h("details", { class: "card", open: true }, h("summary", {}, `Looks by power (${allPowers.length})`), h("div", { class: "ctl", style: "margin:6px 0" }, filter, h("span", { class: "dim" }, `${custom} of ${allPowers.length} have a look of their own`)), h("div", { style: "overflow-x:auto" }, t)));
-  filter.dispatchEvent(new Event("input"));
+  filter.addEventListener("input", () => { S.sel.looksFilter = filter.value; apply(); });
+  const seg = h("div", { class: "seg", role: "group", "aria-label": "Show" }, [["all", "All"], ["with", "With a look"], ["without", "Without"]].map(([m, l]) => h("button", { class: mode === m ? "on" : "", onclick: e => { mode = m; S.sel.looksMode = m; for (const b of seg.children) b.classList.toggle("on", b === e.currentTarget); apply(); } }, l)));
+  for (const p of allPowers) {
+    const c = h("td", { class: "dim" }, `${setCount(p)}/3`); counts[p.id] = c;
+    t.append(h("tr", { "data-p": `${p.id} ${p.name || ""} ${p.shape}`.toLowerCase(), "data-id": p.id }, h("td", {}, p.name || p.id), h("td", { class: "dim" }, (SHAPE_INFO[p.shape] || {}).label || p.shape), ...COLS.map(([k, , list, known, tip]) => cell(k, p.id, list, known, tip)), c));
+  }
+  count(allPowers[0] ? allPowers[0].id : "");
+  wrap.append(h("details", { class: "card", open: true }, h("summary", {}, `Looks by power (${allPowers.length})`),
+    h("div", { class: "ctl", style: "margin:6px 0 10px;gap:12px" }, filter, seg, summary, h("span", { style: "flex:1" }), h("a", { class: "btn small", href: "weapons/", target: "_blank", rel: "noopener", title: "Draw new weapons and shots there (opens in a new tab)" }, "Open the Weapon & Shot studio")),
+    h("div", { style: "overflow-x:auto" }, t)));
+  apply();
   return wrap;
 }
 
