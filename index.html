@@ -127,6 +127,8 @@ header .hg.end { border-right: 0; border-left: 1px solid var(--line); padding: 0
 @media (max-width: 760px) { #app { grid-template-rows: auto auto 1fr; } header { flex-wrap: wrap; padding: 6px 8px; row-gap: 6px; } header .spacer { display: none; } header .hg.end { margin-left: auto; } header .hg { border-right: 0; padding-right: 0; } header .hg.end { border-left: 0; padding-left: 0; } }
 .cgrid.three { grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr)); }   /* a section of three short blocks (a set's 2 / 3 / 4-piece bonuses) */
 .cgrid.three .ctl > span[style*="min-width"] { min-width: 96px !important; }   /* a stat name needs less room when three editors sit side by side */
+a.tag { color: var(--accent); text-decoration: none; cursor: pointer; }
+a.tag:hover { border-color: var(--accent); }
 
 </style>
 <style>
@@ -4291,6 +4293,12 @@ function spawnEditor(en) {
 }
 
 // ---- abilities
+/* what each kind of ability does, shown under the kind */
+const ABILITY_KIND_HELP = {
+  dash: "A quick move of a set distance; it can hurt what it passes through.", roll: "Like a dash, meant to carry a spell of invulnerability (a dodge roll).", blink: "Teleports that far at once, stopping at a wall.",
+  shield: "Nothing can hurt the hero for a moment.", speed_boost: "The hero moves faster for a while.", slam: "Hurts and shoves everything around the hero.",
+  push_pulse: "Shoves everything around the hero away (it can hurt too).", burst_heal: "Heals the hero: a flat amount, a share of max health, or both.",
+};
 const ABILITY_FIELDS = {
   dash: [["distance", 190, "px", 1], ["duration", 0.16, "s", 1], ["invulnerable", 0, "s"], ["damage", 6, "to what it passes through"], ["radius", 36, "px reach for that"]],
   roll: [["distance", 150, "px", 1], ["duration", 0.22, "s", 1], ["invulnerable", 0.3, "s"], ["damage", 0, "to what it passes through"], ["radius", 36, "px reach for that"]],
@@ -4313,18 +4321,22 @@ function tabAbilities() {
     h("button", { class: "btn small danger", onclick: async () => { if (a && await sure(`Delete the ability '${a.id}'?`)) { ab.splice(ab.indexOf(a), 1); S.sel.ability = null; touch(f); renderMain(); } } }, "Delete")));
   const form = h("div", {});
   if (a) {
-    const users = (S.files.heroes.heroes || []).filter(x => x.ability === a.id).map(x => x.name || x.id);
+    const users = (S.files.heroes.heroes || []).filter(x => x.ability === a.id);
+    const isDefault = String((((S.files.game.rules || {}).hero || {}).ability_default) ?? "roll") === a.id;
     form.append(problemBlock(problemsFor(f, a.id + ":")),
       h("details", { class: "card", open: true }, h("summary", {}, "The basics"),
-        row("id", [h("span", {}, a.id), h("span", { class: "unit" }, "(fixed: heroes refer to it)")]), row("name", textField(a, "name", f, { after: renderMain })),
-        row("kind", selectField(a, "kind", f, C.ability_kinds, { after: () => { for (const [k, d] of ABILITY_FIELDS[a.kind] || []) if (a[k] === undefined) a[k] = d; renderMain(); } })),
+        halfRow(row("name", textField(a, "name", f, { after: renderMain }))), row("id", [h("span", {}, a.id), h("span", { class: "unit" }, "(fixed: heroes refer to it)")]),
+        row("kind", selectField(a, "kind", f, C.ability_kinds, { after: () => { for (const [k, d] of ABILITY_FIELDS[a.kind] || []) if (a[k] === undefined) a[k] = d; renderMain(); } }), ABILITY_KIND_HELP[a.kind]),
         row("colour", colorField(a, "color", f, { after: renderMain })), row("description", textField(a, "desc", f, { optional: true }))),
       h("details", { class: "card", open: true }, h("summary", {}, "Use and numbers"),
         row("cooldown", [numField(a, "cooldown", f, { min: 0.05 }), h("span", { class: "unit" }, "s to recharge one use")]), row("charges", [numField(a, "charges", f, { integer: true, min: 1, def: 1, optional: true }), h("span", { class: "unit" }, "uses stored")], "Recharged one at a time."),
         (ABILITY_FIELDS[a.kind] || []).map(([k, d, unit, req]) => row(k + (C.ability_required[a.kind].includes(k) ? " *" : ""), [numField(a, k, f, { def: d, optional: true, min: 0 }), h("span", { class: "unit" }, unit)], null, a[k] !== undefined)),
         ["dash", "roll", "slam", "push_pulse"].includes(a.kind) ? row("damage type", selectField(a, "damage_type", f, C.damage_types, { optional: true, emptyLabel: "physical" }), "Used when it deals damage.") : null,
         h("p", { class: "dim" }, "* required for this kind.")),
-      h("p", { class: "dim" }, users.length ? "Used by: " + users.join(", ") : "No hero uses this ability yet (unless it is the default rule)."));
+      h("details", { class: "card", open: true }, h("summary", {}, `Used by (${users.length})`),
+        h("div", { class: "ctl", style: "margin-top:6px" }, users.map(x => h("a", { href: "#", class: "tag", title: "Open this hero", onclick: e => { e.preventDefault(); S.sel.hero = x.id; S.tab = "heroes"; renderNav(); renderMain(); } }, x.name || x.id)),
+          isDefault ? h("span", { class: "chip ok", title: "Rules > Hero > Default ability" }, "the default for heroes with none set") : null,
+          !users.length && !isDefault ? h("span", { class: "dim" }, "No hero uses this ability yet.") : null)));
   } else form.append(h("p", { class: "lead" }, "No abilities yet."));
   wrap.append(h("div", { class: "split" }, list, form));
   return wrap;
