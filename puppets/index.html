@@ -134,6 +134,12 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--wl, 3
 #pv { width: 100%; height: 100%; display: block; }
 .pvbar { padding: 8px 12px; display: grid; gap: 7px; }
 .pvbar .seg button { padding: 4px 9px; font-size: 12px; }
+.prmbar { display: flex; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+#prmFilter { flex: 1; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; font: 12px var(--f-body); }
+.prmbar button { padding: 4px 9px; font-size: 12px; }
+.grp.clickable { cursor: pointer; } .grp.clickable:hover { color: var(--cyan); }
+.prm-rst { color: var(--cyan); margin-left: 6px; cursor: pointer; } .prm-rst[hidden] { display: none; }
+#params .none { padding: 12px; color: var(--dim); }
 .prm { display: grid; grid-template-columns: 1fr 64px; gap: 4px 8px; align-items: center; padding: 5px 12px; border-bottom: 1px solid #1a1c2e; }
 .prm .nm { font: 12px var(--f-mono); }
 .prm input[type=range] { grid-column: 1 / 2; width: 100%; accent-color: var(--cyan); }
@@ -237,7 +243,7 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
         <div class="pvrow pvsl"><div class="f"><label for="pvAngle">Aim °</label><input id="pvAngle" type="range" min="-180" max="180" value="0"></div><div class="f"><label for="pvAccent">Accent</label><input id="pvAccent" type="color" value="#35a6ff"></div></div>
       </div>
     </div>
-    <div class="sec" style="flex: 1 1 auto"><h2>Animation numbers</h2><div class="scroll" id="params"></div></div>
+    <div class="sec" style="flex: 1 1 auto"><h2 class="hd">Animation numbers <span class="cnt" id="prmCount"></span> <span class="sp"></span><button type="button" id="prmReset" hidden title="Put every number you changed back to the shipped value">Reset changed</button></h2><div class="prmbar"><input type="search" id="prmFilter" placeholder="Filter the numbers…" aria-label="Filter the animation numbers" title="Matches a number's name or its description. Escape clears."><button type="button" id="prmChanged" title="Show only the numbers you changed">Changed only</button></div><div class="scroll" id="params"></div></div>
   </div>
 </main>
 
@@ -1806,24 +1812,46 @@ function renderParams() {
   const box = $("params"); box.innerHTML = "";
   if (doc.style === "flipbook") { const n = document.createElement("p"); n.className = "hint"; n.textContent = "Flipbook puppet: nothing is rigged, so the animation numbers below do nothing except Size. Its picture parts play their frames (Frames… in the inspector) and show in the states you give them (Shown when)."; box.appendChild(n); }
   if (doc.directions === "sides") { const n = document.createElement("p"); n.className = "hint"; n.textContent = "Left and right only: the numbers for the front and back drawings are hidden. In the game the aim picks the side while the hero aims; in this preview the Left / Right buttons do."; box.appendChild(n); }
+  const val = key => doc.anim[key] !== undefined ? doc.anim[key] : DEFAULT.anim[key];
+  const isChg = key => Math.abs(val(key) - DEFAULT.anim[key]) > 1e-9;
+  const q = ($("prmFilter").value || "").trim().toLowerCase(), only = $("prmChanged").classList.contains("on");
+  let shown = 0, changed = 0;
   for (const [group, list] of PARAMS) {
-    const g = document.createElement("div"); g.className = "grp"; g.textContent = group; box.appendChild(g);
-    for (const [key, min, max, step, desc] of list) {
-      if (doc.directions === "sides" && key.endsWith("_front")) continue;   // numbers for the front and back drawings, which a left-and-right puppet does not have
+    const items = list.filter(([key]) => !(doc.directions === "sides" && key.endsWith("_front")));   // numbers for the front and back drawings, which a left-and-right puppet does not have
+    const nChg = items.filter(([key]) => isChg(key)).length; changed += nChg;
+    const vis = items.filter(([key, , , , desc]) => (!q || (key.replace(/_/g, " ") + " " + desc).toLowerCase().includes(q)) && (!only || isChg(key)));
+    if (!vis.length) continue;
+    shown += vis.length;
+    const closed = !q && !only && ui.prmCollapsed && ui.prmCollapsed.has(group);
+    const g = document.createElement("div"); g.className = "grp clickable"; g.title = "Click to open or close this group";
+    g.textContent = (closed ? "\u25b8 " : "\u25be ") + group + (nChg ? "  \u00b7  " + nChg + " changed" : "");
+    g.addEventListener("click", () => { ui.prmCollapsed = ui.prmCollapsed || new Set(); if (ui.prmCollapsed.has(group)) ui.prmCollapsed.delete(group); else ui.prmCollapsed.add(group); renderParams(); });
+    box.appendChild(g);
+    if (closed) continue;
+    for (const [key, min, max, step, desc] of vis) {
       const row = document.createElement("div"); row.className = "prm"; row.dataset.key = key;
-      const cur = doc.anim[key] !== undefined ? doc.anim[key] : DEFAULT.anim[key];
-      if (Math.abs(cur - DEFAULT.anim[key]) > 1e-9) row.classList.add("chg");
-      const nm = document.createElement("div"); nm.className = "nm"; nm.textContent = key; nm.title = "Click to reset to the shipped value"; nm.style.cursor = "pointer";
+      const cur = val(key);
+      if (isChg(key)) row.classList.add("chg");
+      const nm = document.createElement("div"); nm.className = "nm"; nm.textContent = key; nm.title = "Click to reset to the shipped value (" + DEFAULT.anim[key] + ")"; nm.style.cursor = "pointer";
+      const rs = document.createElement("span"); rs.className = "prm-rst"; rs.textContent = "\u21ba"; rs.hidden = !isChg(key); nm.appendChild(rs);
       nm.addEventListener("click", () => change(() => { doc.anim[key] = DEFAULT.anim[key]; docVer++; renderParams(); }));
       const rg = document.createElement("input"); rg.type = "range"; rg.min = min; rg.max = max; rg.step = step; rg.value = cur;
       const nb = document.createElement("input"); nb.type = "number"; nb.min = min; nb.max = max; nb.step = step; nb.value = cur;
       const ds = document.createElement("div"); ds.className = "ds"; ds.textContent = desc;
-      const set = v => { change(() => { doc.anim[key] = v; docVer++; }, "anim:" + key); rg.value = v; nb.value = v; row.classList.toggle("chg", Math.abs(v - DEFAULT.anim[key]) > 1e-9); };
+      const set = v => { change(() => { doc.anim[key] = v; docVer++; }, "anim:" + key); rg.value = v; nb.value = v; const c = Math.abs(v - DEFAULT.anim[key]) > 1e-9; row.classList.toggle("chg", c); rs.hidden = !c; $("prmReset").hidden = !changedKeys().length; $("prmCount").textContent = changedKeys().length ? changedKeys().length + " changed" : ""; };
       rg.addEventListener("input", () => set(parseFloat(rg.value))); nb.addEventListener("input", () => { const v = parseFloat(nb.value); if (!isNaN(v)) set(v); });
       row.append(nm, nb, rg, ds); box.appendChild(row);
     }
   }
+  if (!shown) { const n = document.createElement("div"); n.className = "none"; n.textContent = only && !q ? "You have not changed any number." : "No number matches."; box.appendChild(n); }
+  $("prmCount").textContent = changed ? changed + " changed" : ""; $("prmReset").hidden = !changed;
 }
+/* the animation numbers that differ from the shipped values */
+function changedKeys() { const out = []; for (const [, list] of PARAMS) for (const [key] of list) { if (doc.directions === "sides" && key.endsWith("_front")) continue; const v = doc.anim[key] !== undefined ? doc.anim[key] : DEFAULT.anim[key]; if (Math.abs(v - DEFAULT.anim[key]) > 1e-9) out.push(key); } return out; }
+$("prmFilter").addEventListener("input", () => renderParams());
+$("prmFilter").addEventListener("keydown", e => { if (e.key === "Escape") { $("prmFilter").value = ""; renderParams(); } });
+$("prmChanged").addEventListener("click", e => { e.currentTarget.classList.toggle("on"); renderParams(); });
+$("prmReset").addEventListener("click", () => { const keys = changedKeys(); if (!keys.length) return; showBanner("Put the " + keys.length + " number" + (keys.length === 1 ? "" : "s") + " you changed back to the shipped value" + (keys.length === 1 ? "" : "s") + "?", [["Yes, reset", () => { change(() => { keys.forEach(k => { doc.anim[k] = DEFAULT.anim[k]; }); docVer++; }); renderParams(); }], ["Cancel", () => {}]]); });
 
 /* ---------- left and right only ---------- */
 /* Show the directions switch's state: in "sides" mode the Front / Back drawing buttons and preview-facing buttons are hidden (the puppet never shows them), and the preview holds Left or Right. */
