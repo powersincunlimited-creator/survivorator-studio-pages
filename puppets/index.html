@@ -92,6 +92,11 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--wl, 3
 .sec > h2.hd { display: flex; align-items: center; gap: 6px; }
 .sec > h2.hd button { padding: 1px 7px; font-size: 11px; text-transform: none; letter-spacing: 0; }
 #tree .dim { color: var(--dim); }
+#tree .row.hit { background: #3a3414; } #tree .row.hit.sel { background: #1d3b4a; }
+#tree .none { padding: 10px 12px; color: var(--dim); }
+#treeFilter { width: calc(100% - 16px); margin: 6px 8px 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; font: 12px var(--f-body); }
+.hd .cnt { font: 500 10px var(--f-mono); color: var(--dim); letter-spacing: 0.04em; text-transform: none; }
+.hd .tg2 { display: inline-flex; gap: 3px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; }
 #tree .eye { margin-left: auto; cursor: pointer; color: var(--cyan); padding: 0 3px; user-select: none; }
 #tree .eye.off { color: var(--warn); }
 #tree .row.dim .eye { opacity: 1; }
@@ -194,7 +199,7 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
 <main>
   <div class="col" id="left">
     <div class="gv" data-col="wl" title="Drag to resize the panel · double-click to reset"></div>
-    <div class="sec" style="flex: 1 1 40%"><h2 class="hd">Parts <span class="sp"></span><button type="button" id="showAll" hidden title="Show every part you have hidden in this view">Show all</button><button type="button" id="expandAll" title="Expand every section">Expand</button><button type="button" id="collapseAll" title="Collapse every section">Collapse</button></h2><div class="scroll" id="tree"></div></div>
+    <div class="sec" style="flex: 1 1 40%"><h2 class="hd">Parts <span class="sp"></span><button type="button" id="showAll" hidden title="Show every part you have hidden in this view">Show all</button><span class="tg2" role="group" aria-label="Sections"><button type="button" id="expandAll" title="Expand every section">Expand</button><button type="button" id="collapseAll" title="Collapse every section">Collapse</button></span></h2><input type="search" id="treeFilter" placeholder="Filter parts by name…" aria-label="Filter parts" title="Show only the parts whose name, rig name or picture matches (a matching pivot shows everything inside it). Escape clears."><div class="scroll" id="tree"></div></div>
     <div class="gh" id="ghLeft" title="Drag to resize Parts / Inspector · double-click to reset"></div>
     <div class="sec" style="flex: 1 1 60%"><h2>Inspector</h2><div class="scroll"><div id="inspector"></div></div></div>
   </div>
@@ -1215,10 +1220,18 @@ function setAllCollapsed(on) { ui.collapsed.clear(); if (on) walk(doc.views[ui.v
 function selectedParent() { const s = ui.sel; return s ? findParent(doc.views[ui.view], s.obj) : null; }
 function renderTree() {
   const t = $("tree"); t.innerHTML = ""; const view = ui.view, rig = doc.rig[view];
-  const rec = (n, depth, order, path) => {
+  const q = (ui.treeFilter || "").trim().toLowerCase();
+  const label = n => isPoly(n) ? `${n.poly.name || ""} ${n.poly.img ? n.poly.img.file : "polygon"} ${n.poly.accent ? "accent" : ""}` : `${n.name || ""} ${rigNameOf(view, n) ? "rig:" + rigNameOf(view, n) : ""} ${n.mv ? "moves" : ""} ${n.ow > 0 ? "outlined" : ""}`;
+  const self = n => label(n).toLowerCase().includes(q), memo = new Map();
+  const vis = n => { if (!memo.has(n)) memo.set(n, self(n) || (!isPoly(n) && n.kids.some(vis))); return memo.get(n); };
+  let shown = 0;
+  const rec = (n, depth, order, path, forced) => {
+    if (q && !forced && !vis(n)) return;
+    shown++;
     const row = document.createElement("div"); row.className = "row"; row.style.paddingLeft = (8 + depth * 12) + "px";
+    if (q && self(n)) row.classList.add("hit");
     const hkey = view + ":" + path, isHidden = ui.hiddenParts.has(hkey); if (isHidden) row.classList.add("dim");
-    const key = view + ":" + n.id, hasKids = !isPoly(n) && n.kids.length > 0, collapsed = hasKids && ui.collapsed.has(key);
+    const key = view + ":" + n.id, hasKids = !isPoly(n) && n.kids.length > 0, collapsed = hasKids && !q && ui.collapsed.has(key);
     const caret = document.createElement("span"); caret.className = "caret" + (hasKids ? "" : " leaf"); caret.textContent = collapsed ? "▸" : "▾";
     caret.title = hasKids ? (collapsed ? "Expand" : "Collapse") : "";
     caret.addEventListener("click", e => { e.stopPropagation(); if (!hasKids) return; if (collapsed) ui.collapsed.delete(key); else ui.collapsed.add(key); renderTree(); });
@@ -1243,10 +1256,12 @@ function renderTree() {
     if (order) { const od = document.createElement("span"); od.className = "ord"; od.textContent = order; od.title = "Layer: 1 = drawn first (behind), highest = in front"; row.appendChild(od); }
     row.addEventListener("click", () => select({ obj: n }));
     t.appendChild(row);
-    if (!isPoly(n) && !collapsed) n.kids.forEach((k, i) => rec(k, depth + 1, `${i + 1}/${n.kids.length}`, path + "/" + i));
+    if (!isPoly(n) && !collapsed) n.kids.forEach((k, i) => rec(k, depth + 1, `${i + 1}/${n.kids.length}`, path + "/" + i, forced || (q && self(n))));
   };
-  rec(doc.views[view], 0, "", "r");
-  { const any = [...ui.hiddenParts].some(k => k.startsWith(view + ":")); $("showAll").hidden = !any; }
+  rec(doc.views[view], 0, "", "r", false);
+  if (q && !shown) { const none = document.createElement("div"); none.className = "none"; none.textContent = "No part matches \u201c" + (ui.treeFilter || "").trim() + "\u201d."; t.appendChild(none); }
+  { let polys = 0, pivots = 0; walk(doc.views[view], n => { if (isPoly(n)) polys++; else pivots++; }); $("treeFilter").placeholder = `Filter ${polys} polygons and ${pivots} pivots\u2026`; }
+  { const hid = [...ui.hiddenParts].filter(k => k.startsWith(view + ":")).length; $("showAll").hidden = !hid; $("showAll").textContent = "Show all (" + hid + ")"; }
 }
 /* A section of the inspector: a collapsible card with a two-column grid in it. Which sections are open is remembered (by title) across the rebuilds. */
 const insOpen = {};
@@ -2016,6 +2031,8 @@ async function boot() {
 
 /* ---------- toolbar wiring ---------- */
 $("viewSeg").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; if (!doc.views[b.dataset.view]) { setStatus("No Right drawing yet: press Left → Right", "warn"); return; } ui.view = b.dataset.view; ui.sel = null; [...$("viewSeg").children].forEach(x => x.classList.toggle("on", x === b)); renderTree(); renderInspector(); renderEdit(); });
+$("treeFilter").addEventListener("input", () => { ui.treeFilter = $("treeFilter").value; renderTree(); });
+$("treeFilter").addEventListener("keydown", e => { if (e.key === "Escape") { $("treeFilter").value = ""; ui.treeFilter = ""; renderTree(); } });
 $("expandAll").addEventListener("click", () => setAllCollapsed(false)); $("collapseAll").addEventListener("click", () => setAllCollapsed(true));
 $("mirrorToRightBtn").addEventListener("click", () => askMirror("side", "right")); $("mirrorToLeftBtn").addEventListener("click", () => askMirror("right", "side")); $("linkSel").addEventListener("change", e => setLink(e.target.value));
 $("charSel").addEventListener("change", e => switchCharacter(e.target.value));
