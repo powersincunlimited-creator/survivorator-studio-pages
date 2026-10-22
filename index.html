@@ -4435,13 +4435,24 @@ function tabContent() {
   const data = S.files[file];
   if (!data) { wrap.append(h("p", {}, "That file is not in this pack.")); return wrap; }
   const rawMode = S.sel.raw && S.sel.raw === file;
-  wrap.append(h("div", { class: "ctl", style: "margin-bottom:10px" }, h("button", { class: "btn small", onclick: async () => { S.sel.raw = rawMode ? null : file; renderMain(); } }, rawMode ? "← form view" : "raw JSON view"), h("span", { class: "dim" }, file + ".json" + (S.meta[file] && S.meta[file].by ? `  ·  saved by ${S.meta[file].by}` : ""))));
+  const info = `${file}.json` + (S.meta[file] && S.meta[file].by ? `  ·  saved by ${S.meta[file].by}` : "");
+  wrap.append(h("div", { class: "ctl", style: "margin-bottom:10px;gap:12px" },
+    h("div", { class: "seg", role: "group", "aria-label": "View" }, [[false, "Fields"], [true, "Raw JSON"]].map(([r, l]) => h("button", { class: !!rawMode === r ? "on" : "", onclick: async () => { S.sel.raw = r ? file : null; renderMain(); } }, l))),
+    h("span", { class: "dim", "data-nopolish": "" }, info)));
   wrap.append(problemBlock(problemsFor(file)));
   if (rawMode) {
-    const ta = h("textarea", { spellcheck: "false" });
-    ta.value = JSON.stringify(data, null, "\t");
-    const msg = h("span", { class: "dim" });
-    wrap.append(ta, h("div", { class: "ctl", style: "margin-top:8px" }, h("button", { class: "btn primary", onclick: async () => { try { S.files[file] = JSON.parse(ta.value); touch(file); renderMain(); } catch (e) { msg.textContent = "Not valid JSON: " + e.message; msg.className = "chip bad"; } } }, "Apply"), msg));
+    const text = JSON.stringify(data, null, "\t");
+    const ta = h("textarea", { spellcheck: "false", style: "min-height:55vh" });
+    ta.value = text;
+    const status = h("span", { class: "chip ok" }, "");
+    const check = () => { try { JSON.parse(ta.value); status.className = "chip ok"; status.textContent = `Valid JSON · ${ta.value.split("\n").length} lines`; return true; } catch (e) { status.className = "chip bad"; status.textContent = "Not valid JSON: " + e.message; return false; } };
+    ta.addEventListener("input", check);
+    wrap.append(ta, h("div", { class: "ctl", style: "margin-top:8px" },
+      h("button", { class: "btn primary", onclick: async () => { if (!check()) return; S.files[file] = JSON.parse(ta.value); touch(file); renderMain(); } }, "Apply"),
+      h("button", { class: "btn", onclick: () => { ta.value = text; check(); } }, "Revert to what is loaded"),
+      h("button", { class: "btn", onclick: async () => { try { await navigator.clipboard.writeText(ta.value); toast("Copied"); } catch (e) { toast("The browser would not copy: select the text instead"); } } }, "Copy"),
+      status));
+    check();
     return wrap;
   }
   // lists / maps get an item list; everything else is edited directly
@@ -4470,7 +4481,7 @@ function tabContent() {
     const container = cur.kind === "list" ? data[cur.k] : data[cur.k];
     const item = container[cur.i];
     if (item) {
-      editor.append(h("div", { class: "ctl", style: "margin-bottom:8px" }, h("b", {}, `${cur.k}[${cur.i}]`), h("span", { style: "flex:1" }),
+      editor.append(h("div", { class: "ctl", style: "margin-bottom:8px" }, h("b", {}, `${cur.k}[${cur.i}]`), item.name || item.id ? h("span", { class: "dim", "data-nopolish": "" }, item.name || item.id) : null, h("span", { style: "flex:1" }),
         h("button", { class: "btn small", onclick: async () => { if (cur.kind === "list") { container.splice(cur.i + 1, 0, clone(item)); S.sel.item = { ...cur, i: cur.i + 1 }; } else { const n = slug(await ask("Key for the copy:") || ""); if (!n || container[n]) return; container[n] = clone(item); S.sel.item = { ...cur, i: n }; } touch(file); renderMain(); } }, "Copy"),
         h("button", { class: "btn small danger", onclick: async () => { if (!await sure("Delete this entry?")) return; if (cur.kind === "list") container.splice(cur.i, 1); else delete container[cur.i]; S.sel.item = null; touch(file); renderMain(); } }, "Delete")));
       editor.append(genericEditor(item, file, { path: cur.k, card: "Fields" }));
