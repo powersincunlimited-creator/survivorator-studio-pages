@@ -2796,9 +2796,13 @@ function tabBosses() {
     appearances ? h("div", { class: "ctl", style: "margin-top:6px" }, h("span", { class: "dim" }, "The next bosses:"), appearances) : h("p", { class: "dim" }, "No bosses yet.")));
   const list = h("div", { class: "list" });
   for (const x of bs) list.append(h("div", { class: "item" + (x.id === sel ? " on" : ""), onclick: () => { S.sel.boss = x.id; renderMain(); } }, h("span", { style: "display:flex;align-items:center;gap:7px;min-width:0" }, h("span", { class: "dot", style: "background:" + (x.color || "#888") }), x.name || x.id), h("small", {}, "★".repeat(x.rank || 0) + " · wave " + x.wave)));
+  const moveBoss = d => { const i = bs.findIndex(x => x.id === sel), j = i + d; if (i < 0 || j < 0 || j >= bs.length) return; [bs[i], bs[j]] = [bs[j], bs[i]]; touch(f); re(); };
+  const at = bs.findIndex(x => x.id === sel);
   list.append(h("div", { class: "tools" },
     h("button", { class: "btn small", onclick: async () => { const id = slug(await ask("ID for the new boss:") || ""); if (!id || bs.some(x => x.id === id)) return; bs.push({ id, name: id.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()), alias: "The Newcomer", wave: (bs.length + 1) * (S.files.bosses.every || 5), rank: 3, hp: 400, speed: 64, damage: 12, radius: 28, color: "#cc6633", shape: "enforcer", abilities: [{ name: "slam", cd: 6, windup: 1, radius: 160, damage: 18, trigger: 190 }], signature: ids("powers", "powers")[0], bounty: 120 }); S.sel.boss = id; touch(f); re(); } }, "+ New"),
     h("button", { class: "btn small", onclick: async () => { if (!b) return; const id = slug(await ask(`Id for the copy of ${b.id}:`) || ""); if (!id || bs.some(x => x.id === id)) return; const c = clone(b); c.id = id; c.name += " 2"; bs.splice(bs.indexOf(b) + 1, 0, c); S.sel.boss = id; touch(f); re(); } }, "Copy"),
+    h("button", Object.assign({ class: "btn small", title: "Move this boss earlier in the list: it walks in sooner", onclick: () => moveBoss(-1) }, at <= 0 ? { disabled: true } : {}), "↑ Earlier"),
+    h("button", Object.assign({ class: "btn small", title: "Move this boss later in the list: it walks in later", onclick: () => moveBoss(1) }, at < 0 || at >= bs.length - 1 ? { disabled: true } : {}), "↓ Later"),
     h("button", { class: "btn small danger", onclick: async () => { if (!b) return; const used = (S.files.achievements.achievements || []).filter(a => (a.cond || {}).villain === b.id).map(a => a.name || a.id); if (used.length) { toast("Cannot delete: achievement(s) " + used.join(", ") + " need this boss.", 6000); return; } if (!(await sure(`Delete the boss '${b.id}'?`))) return; bs.splice(bs.indexOf(b), 1); S.sel.boss = null; touch(f); re(); } }, "Delete")));
   const form = h("div", {});
   if (b) {
@@ -2807,7 +2811,7 @@ function tabBosses() {
         halfRow(row("name", textField(b, "name", f, { after: re }))), row("alias", textField(b, "alias", f), "The subtitle on the wanted poster."),
         row("id", [h("span", {}, b.id), h("span", { class: "unit" }, "(fixed)")]),
         row("rank", selectField(b, "rank", f, [1, 2, 3, 4, 5].map(n => [n, "★".repeat(n)]), { number: true }), "The difficulty: also the rank of its signature power."),
-        row("first wave", [numField(b, "wave", f, { integer: true, min: 1 }), h("span", { class: "unit" }, "(informational)")], "The order of the list decides which boss comes when.")),
+        row("first wave", [numField(b, "wave", f, { integer: true, min: 1 }), h("span", { class: "unit" }, "(informational)")], "The order of the list decides which boss comes when (use Earlier / Later under the list to change it). This number is only a note.")),
       h("details", { class: "card", open: true }, h("summary", {}, "Body and numbers"),
         row("health", numField(b, "hp", f, { min: 1 })), row("speed", [numField(b, "speed", f, { min: 0 }), h("span", { class: "unit" }, "px/s")]), row("touch damage", numField(b, "damage", f, { min: 0 })),
         row("body radius", [numField(b, "radius", f, { min: 8 }), h("span", { class: "unit" }, "px")]), row("colour", colorField(b, "color", f, { after: re })), row("shape", selectField(b, "shape", f, C.silhouettes))),
@@ -4360,9 +4364,10 @@ function kindForm(en, id) {
   // awareness + movement
   const mv = k.move = k.move || {};
   const style = mv.style || "direct";
+  const mvStyle = { get style() { return mv.style || "direct"; }, set style(v) { mv.style = v; } };   // "direct" is the default and is stored as no style at all, so the menu has to show it when there is none
   out.append(h("details", { class: "card", open: true }, h("summary", {}, "Notices and moves"),
     row("notice radius", [numField(k, "detect", f, { optional: true, min: 0, after: re }), h("span", { class: "unit" }, "px · 0 / empty = always aware")], "Outside it the enemy idles (stands still, or wanders). A hit alerts it at once."),
-    row("movement style", selectField(mv, "style", f, C.enemy.move_styles, { after: () => { const st = mv.style; const keep = {}; keep.style = st; for (const [pk, pd] of MOVE_PARAMS[st] || []) keep[pk] = pd; k.move = st === "direct" ? {} : keep; re(); } }), MOVE_HELP[style]),
+    row("movement style", selectField(mvStyle, "style", f, C.enemy.move_styles, { after: () => { const st = mv.style; const keep = {}; keep.style = st; for (const [pk, pd] of MOVE_PARAMS[st] || []) keep[pk] = pd; k.move = st === "direct" ? {} : keep; re(); } }), MOVE_HELP[style]),
     paramRows(mv, f, MOVE_PARAMS[style] || [])));
   if (!Object.keys(mv).length || (Object.keys(mv).length === 1 && mv.style === "direct")) delete k.move;
   // attack
