@@ -440,6 +440,7 @@ function validatePack(pack) {
   }
   const heroes = new Set(heroIds);
   if (heroes.size !== heroIds.length) err("heroes.json", "a hero id appears twice");
+  { const dh = pack.heroes.default_hero; if (dh !== undefined && dh !== null && dh !== "" && !heroes.has(dh)) err("heroes.json", `default_hero ${JSON.stringify(dh)} is not a hero`); }
 
   for (const table of ["weapon", "projectile_visual", "projectile_impact"]) for (const pid of Object.keys(pack.looks[table] || {})) if (!powers.has(pid)) err("looks.json", `${table}: '${pid}' is not a power`);
 
@@ -2359,9 +2360,16 @@ function tabHeroes() {
   const sel = S.sel.hero && hs.some(x => x.id === S.sel.hero) ? S.sel.hero : (hs[0] || {}).id;
   S.sel.hero = sel;
   const hero = hs.find(x => x.id === sel);
-  const wrap = h("div", {}, h("h2", {}, "Heroes"), h("p", { class: "lead" }, "The classes a player can pick: a starting power and ability, a few stat leanings and tags that steer the shop. Every hero needs a puppet (a drawing named hero_<id>) in the game."));
+  const wrap = h("div", {}, h("h2", {}, "Heroes"), h("p", { class: "lead" }, "The classes a player can pick: a starting power and ability, a few stat leanings and tags that steer the shop. Every hero needs a puppet (a drawing named hero_<id>) in the game. The order of this list is the order of the hero select screen."));
+  const classesOn = (S.files.game.modules || {}).classes !== false;
+  const defaultId = (S.files.heroes.default_hero && hs.some(x => x.id === S.files.heroes.default_hero)) ? S.files.heroes.default_hero : "";
+  const dflt = selectField(S.files.heroes, "default_hero", "heroes", hs.map(x => [x.id, x.name || x.id]), { optional: true, emptyLabel: `(the first hero in the list: ${(hs[0] || {}).name || "none"})`, after: () => renderMain() });
+  wrap.append(h("details", { class: "card", open: !classesOn }, h("summary", {}, `Default hero (${classesOn ? "used only if the Classes module is off" : "this pack has Classes off: everyone starts as this hero"})`),
+    row("default hero", dflt, classesOn ? "With the Classes module on, players pick on the select screen and this does nothing. Turn Classes off (the pack's modules) and every player starts as this hero." : "Classes is off in this pack: there is no select screen, and every player (co-op too) starts as this hero.")));
   const list = h("div", { class: "list" });
-  for (const x of hs) list.append(h("div", { class: "item" + (x.id === sel ? " on" : ""), onclick: () => { S.sel.hero = x.id; renderMain(); } }, h("span", {}, x.name || x.id), h("small", {}, powerName(x.start_power))));
+  for (const x of hs) list.append(h("div", { class: "item" + (x.id === sel ? " on" : ""), onclick: () => { S.sel.hero = x.id; renderMain(); } }, h("span", {}, x.name || x.id), h("small", {}, powerName(x.start_power) + (x.id === (defaultId || (hs[0] || {}).id) ? " · default" : ""))));
+  const moveHero = d => { const i = hs.findIndex(x => x.id === sel), j = i + d; if (i < 0 || j < 0 || j >= hs.length) return; [hs[i], hs[j]] = [hs[j], hs[i]]; touch(f); renderMain(); };
+  const at = hs.findIndex(x => x.id === sel);
   list.append(h("div", { class: "tools" },
     h("button", { class: "btn small", onclick: async () => {
       const id = slug(await ask("ID for the new hero (lower case, e.g. peasant_king):") || ""); if (!id) return;
@@ -2378,12 +2386,15 @@ function tabHeroes() {
       const pup = S.files.puppets; if (!pup.puppets.includes("hero_" + id)) { pup.puppets.push("hero_" + id); touch("puppets"); }
       S.sel.hero = id; touch(f); renderMain();
     } }, "Copy"),
+    h("button", { class: "btn small", title: "Move this hero earlier in the list: earlier on the select screen (and the default when no default hero is set)", disabled: at <= 0, onclick: () => moveHero(-1) }, "↑ Earlier"),
+    h("button", { class: "btn small", title: "Move this hero later in the list: later on the select screen", disabled: at < 0 || at >= hs.length - 1, onclick: () => moveHero(1) }, "↓ Later"),
     h("button", { class: "btn small danger", onclick: async () => {
       if (!hero) return;
       const blockers = (S.files.achievements.achievements || []).filter(a => (a.rewards || []).some(r => r.category === "archetypes" && r.id === hero.id)).map(a => a.name || a.id);
       if (blockers.length) { toast("Cannot delete: the achievement(s) " + blockers.join(", ") + " unlock this hero. Change those first.", 6000); return; }
       if (!(await sure(`Delete the hero '${hero.id}'? Its puppet entry, hero effects, gear leaning and starter listing go with it.`))) return;
       hs.splice(hs.indexOf(hero), 1);
+      if (S.files.heroes.default_hero === hero.id) delete S.files.heroes.default_hero;
       const pu = S.files.puppets; pu.puppets = pu.puppets.filter(x => x !== "hero_" + hero.id); touch("puppets");
       delete (S.files.hero_effects.profiles || {})[hero.id]; touch("hero_effects");
       delete (S.files.shop.own_set || {})[hero.id]; touch("shop");
@@ -2396,7 +2407,8 @@ function tabHeroes() {
     form.append(problemBlock(problemsFor("heroes", hero.id + ":")),
       h("details", { class: "card", open: true }, h("summary", {}, "Who they are"),
         halfRow(row("name", textField(hero, "name", f, { after: re }))), row("id", [h("span", {}, hero.id), h("span", { class: "unit" }, "(fixed: the puppet and unlocks refer to it)")]), row("blurb", textField(hero, "blurb", f), "One line shown on the select screen."),
-        row("tags", tagPicker(hero, "tags", f))),
+        row("tags", tagPicker(hero, "tags", f)),
+        row("default hero", (() => { const c = h("input", { type: "checkbox", checked: hero.id === (defaultId || (hs[0] || {}).id) }); c.addEventListener("change", () => { if (c.checked) S.files.heroes.default_hero = hero.id; else delete S.files.heroes.default_hero; touch(f); re(); }); return [c, h("span", { class: "unit" }, "the hero every player starts as when the Classes module is off")]; })())),
       h("details", { class: "card", open: true }, h("summary", {}, "Starting kit"),
         row("start power", selectField(hero, "start_power", f, (S.files.powers.powers || []).map(p => [p.id, `${p.name || p.id}  (${(SHAPE_INFO[p.shape] || {}).label || p.shape})`]), { after: re }), "The power they begin every run with (it unlocks with the hero)."),
         row("ability", selectField(hero, "ability", f, ids("abilities", "abilities").map(i => [i, ((S.files.abilities.abilities || []).find(a => a.id === i) || {}).name + `  (${i})`]), { optional: true, emptyLabel: `(the default: ${(((S.files.game.rules || {}).hero || {}).ability_default) ?? "roll"})` }), "The ability button."),
