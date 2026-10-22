@@ -1309,6 +1309,8 @@ function showBanner(html, buttons) { const b = $("banner"); b.hidden = false; b.
 /* ---------- arenas: the library (shapes/arena_index) and the Arena tools dialog ----------
    The shared arena (shapes/arena_data, id "") is always there; every other arena is shapes/arena_<id>, listed in the registry shapes/arena_index (and in this browser). A pack gets an arena by COPY:
    "Use in a pack" writes this arena into packs/<pack>/files/arena (what the Main Studio and sync_pack.py read), "Start from a pack's arena" reads one back. */
+/* A cloud call that never answers (a blocked connection, a slow network) must not freeze the dialog: after `ms` it gives up WAITING (the write itself carries on in the background). */
+const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error((what || "The cloud") + " did not answer within " + Math.round(ms / 1000) + " s")), ms))]);
 const ARENA_REG_KEY = "ncn_arena_registry", ARENA_LAST_KEY = "ncn_arena_last";
 let ARENAS = [], DEFAULT_LABEL = "", ARENA = "";   // ARENAS = [{id, label, from, created}], the custom ones; ARENA = the one being edited ("" = the shared one)
 const arenaEntry = id => ARENAS.find(e => e.id === id);
@@ -1323,7 +1325,10 @@ async function loadArenaRegistry() {
 }
 async function saveArenaRegistry() {
   try { localStorage.setItem(ARENA_REG_KEY, JSON.stringify({ arenas: ARENAS, defaultLabel: DEFAULT_LABEL })); } catch (e) {}
-  if (cloudOk) await setDoc(fsDoc(db, COLLECTION, "arena_index"), { dataJson: JSON.stringify({ arenas: ARENAS, defaultLabel: DEFAULT_LABEL }), updated: Date.now(), updatedBy: nickname || "Anonymous" });
+  if (cloudOk) {
+    try { await withTimeout(setDoc(fsDoc(db, COLLECTION, "arena_index"), { dataJson: JSON.stringify({ arenas: ARENAS, defaultLabel: DEFAULT_LABEL }), updated: Date.now(), updatedBy: nickname || "Anonymous" }), 8000, "Saving the arena list"); }
+    catch (e) { console.warn(e); setStatus("the arena list is still saving (slow connection)", "warn"); }   // kept in this browser meanwhile; the write carries on
+  }
 }
 function fillArenaPicker() {
   const sel = $("arenaSel"); sel.innerHTML = "";
@@ -1349,13 +1354,13 @@ async function loadCurrentArena(startDoc) {
 }
 /* Switch to another arena. Edits not saved yet go to the arena you are leaving (unless `leave` is false: Save as keeps the original as it was saved). */
 async function switchArena(id, startDoc, flush = true) {
-  if (flush && dirty && cloudOk) await saveCloud(true);
+  if (flush && dirty && cloudOk) { try { await withTimeout(saveCloud(true), 8000, "Saving this arena"); } catch (e) { console.warn(e); } }
   useArenaIdentity(id);
   await loadCurrentArena(startDoc); fillArenaPicker(); showArena(); render(); fitArena(); setStatus();
 }
-async function packNames() { if (!cloudOk) return []; try { return (await getDocs(collection(db, "packs"))).docs.map(d => d.id).sort(); } catch (e) { console.error(e); return []; } }
+async function packNames() { if (!cloudOk) return []; try { return (await withTimeout(getDocs(collection(db, "packs")), 6000, "The pack list")).docs.map(d => d.id).sort(); } catch (e) { console.error(e); return []; } }
 async function loadPackArena(pack) {
-  const snap = await getDoc(fsDoc(db, "packs", pack, "files", "arena")); if (!snap.exists()) throw new Error("Pack " + pack + " has no arena file yet");
+  const snap = await withTimeout(getDoc(fsDoc(db, "packs", pack, "files", "arena")), 15000, "Reading the pack"); if (!snap.exists()) throw new Error("Pack " + pack + " has no arena file yet");
   const d = JSON.parse(snap.data().json), err = validate(d); if (err) throw new Error("The arena in " + pack + " is not usable: " + err); return d;
 }
 async function loadArenaDoc(id) {   // another arena's saved copy (or its unsaved draft in this browser)
@@ -1376,7 +1381,7 @@ async function createArena(label, from) {
   start.name = clean;
   ARENAS.push({ id, label: clean, from, created: Date.now() }); await saveArenaRegistry();
   await switchArena(id, start, from !== "@current");   // Save as: the original keeps what was saved (edits not saved stay a local draft of it)
-  if (cloudOk) await saveCloud(true);
+  if (cloudOk) saveCloud(true);   // in the background (it reports in the status pill): the dialog does not wait for the network
   return id;
 }
 async function renameArena(label) {
@@ -1388,9 +1393,9 @@ async function usePackArena(pack) {
   const text = JSON.stringify(doc), bytes = new Blob([text]).size;
   if (bytes > 1000000) throw new Error("This arena is " + Math.round(bytes / 1024) + " KB: more than a pack file can hold in the cloud (about 1 MB). Use File > Export JSON and put the file at packs/" + pack + "/arena.json by hand.");
   const payload = { json: text, updated: serverTimestamp(), by: nickname || "Anonymous" };
-  await setDoc(fsDoc(db, "packs", pack, "files", "arena"), payload);
-  try { await addDoc(collection(db, "packs", pack, "files", "arena", "history"), payload); } catch (e) { /* history is a nicety */ }
-  await setDoc(fsDoc(db, "packs", pack), { name: pack, updated: serverTimestamp() });
+  await withTimeout(setDoc(fsDoc(db, "packs", pack, "files", "arena"), payload), 30000, "Writing the pack");
+  try { await withTimeout(addDoc(collection(db, "packs", pack, "files", "arena", "history"), payload), 10000); } catch (e) { /* history is a nicety */ }
+  await withTimeout(setDoc(fsDoc(db, "packs", pack), { name: pack, updated: serverTimestamp() }), 10000, "Writing the pack");
 }
 async function renderArenaDialog(msg) {
   const body = $("adBody"); body.innerHTML = "";
@@ -1398,7 +1403,7 @@ async function renderArenaDialog(msg) {
   const lab = (t, el) => { const w = document.createElement("label"); w.style.cssText = "display:grid;gap:3px"; const l = document.createElement("span"); l.textContent = t; l.style.cssText = "font:600 10px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)"; w.append(l, el); return w; };
   const input = ph => { const i = document.createElement("input"); i.type = "text"; i.placeholder = ph || ""; i.style.cssText = "background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:5px 7px"; return i; };
   const select = () => { const x = document.createElement("select"); x.style.cssText = "background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:5px 7px"; return x; };
-  const button = (t, fn, cls) => { const b = document.createElement("button"); b.type = "button"; b.textContent = t; if (cls) b.className = cls; b.addEventListener("click", async () => { b.disabled = true; try { await fn(); } catch (e) { renderArenaDialog({ bad: true, text: e.message || String(e) }); } }); return b; };
+  const button = (t, fn, cls) => { const b = document.createElement("button"); b.type = "button"; b.textContent = t; if (cls) b.className = cls; b.addEventListener("click", async () => { b.disabled = true; b.textContent = "Working…"; try { await fn(); } catch (e) { console.error(e); renderArenaDialog({ bad: true, text: e.message || String(e) }); } }); return b; };
   if (msg) { const m = document.createElement("div"); m.className = "pill " + (msg.bad ? "bad" : "ok"); m.style.whiteSpace = "normal"; m.textContent = msg.text; body.appendChild(m); }
   const packs = await packNames();
   // 1. new arena / save as
