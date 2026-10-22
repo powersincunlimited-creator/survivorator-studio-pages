@@ -4313,6 +4313,16 @@ function tabOverview() {
     if (grid.children.length) modCard.append(h("div", { class: "sub" }, title), grid);
   }
   wrap.append(modCard);
+  // the arena: this pack's own copy (edited in the Arena Studio)
+  const ar = S.files.arena;
+  if (ar && ar.props) {
+    const mg = ar.camera_margin || {};
+    wrap.append(h("details", { class: "card" }, h("summary", {}, `Arena: ${ar.name || "(unnamed)"}`),
+      row("size", [h("span", {}, `${(ar.size || [])[0] || "?"} × ${(ar.size || [])[1] || "?"} px`), h("span", { class: "unit" }, `camera margin ${mg.left ?? "?"} / ${mg.right ?? "?"} / ${mg.top ?? "?"} / ${mg.bottom ?? "?"} (left / right / top / bottom)`)]),
+      row("art", h("span", {}, `${ar.props.length} props`)),
+      h("p", { class: "hint dim", "data-nopolish": "", style: "margin:6px 0" }, `This pack has its own copy of the arena. To change it: Arena Studio, Arena… , "New arena / Save as", Start from "the arena in pack ${S.pack}", edit, then Arena… , "Use this arena in the pack" and Save here again. To play it: py tools/studio/sync_pack.py pull ${S.pack}.`),
+      h("div", { class: "ctl" }, h("a", { class: "btn small", href: "arena/", target: "_blank", rel: "noopener", title: "Opens in a new tab" }, "Open the Arena Studio"))));
+  }
   return wrap;
 }
 
