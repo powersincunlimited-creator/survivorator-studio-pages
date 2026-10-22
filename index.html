@@ -135,6 +135,10 @@ table.looks td { padding: 3px 5px; } table.looks input { background: var(--input
 table.looks input.set { border-color: #5ec8ff66; color: var(--text); } table.looks input.odd { border-color: var(--warn); }
 a.btn { text-decoration: none; color: var(--text); display: inline-block; }
 
+.bargroup { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 12px; border-right: 1px solid var(--line); }
+.bargroup:last-child { border-right: 0; }
+.bargroup select { max-width: 280px; }
+
 </style>
 <style>
 .site-nav{display:inline-flex;gap:4px;align-items:center;margin:0 6px;flex:none}
@@ -3312,15 +3316,16 @@ function tabMenus() {
   const pick = h("select", {}, ids.map(i => h("option", { value: i }, `${screens[i].def.name || i}${screens[i].own ? (screens[i].builtin ? "  (customised)" : "  (yours)") : "  (built-in)"}`)));
   pick.value = sid;
   pick.addEventListener("change", () => { S.sel.uiScreen = pick.value; re(); });
-  const bar = h("div", { class: "ctl", style: "margin-bottom:10px" }, h("span", { class: "dim" }, "screen"), pick,
-    h("button", { class: "btn small", onclick: async () => { const id = slug(await ask("ID for the new screen:") || ""); if (!id || screens[id]) return; const file = uiEnsureFile(); file.screens[id] = { name: id.replace(/_/g, " "), layer: 50, context: {}, elements: [{ id: "bg", type: "panel", anchor: "full", fill: "bg", border: "", radius: 0 }] }; S.sel.uiScreen = id; touch(f); re(); } }, "+ New screen"),
-    info.own && info.builtin ? h("button", { class: "btn small danger", onclick: async () => { if (!(await sure(`Throw away your changes to '${sid}' and go back to the built-in screen?`))) return; delete S.files.ui.screens[sid]; st.sel = null; touch(f); re(); } }, "Back to built-in") : null,
-    info.own && !info.builtin ? h("button", { class: "btn small danger", onclick: async () => { if (!(await sure(`Delete the screen '${sid}'?`))) return; delete S.files.ui.screens[sid]; S.sel.uiScreen = null; touch(f); re(); } }, "Delete screen") : null);
+  const state = !info.own ? ["Built-in", "chip", "The game's own screen: read-only until you customise it."] : info.builtin ? ["Customised", "chip warn", "This pack has its own copy of a built-in screen."] : ["Yours", "chip ok", "A screen this pack made."];
+  const bar = h("div", { class: "ctl", style: "margin-bottom:10px;gap:10px" },
+    h("div", { class: "bargroup" }, h("span", { class: "gl" }, "Screen"), pick, h("span", { class: state[1], title: state[2] }, state[0])),
+    h("div", { class: "bargroup" },
+      !info.own ? h("button", { class: "btn primary small", title: "Your pack then keeps a copy that you can edit freely (and can throw away later)", onclick: () => { const file = uiEnsureFile(); file.screens[sid] = clone(info.def); touch(f); re(); } }, "Customise this screen") : null,
+      h("button", { class: "btn small", onclick: async () => { const id = slug(await ask("ID for the new screen:") || ""); if (!id || screens[id]) return; const file = uiEnsureFile(); file.screens[id] = { name: id.replace(/_/g, " "), layer: 50, context: {}, elements: [{ id: "bg", type: "panel", anchor: "full", fill: "bg", border: "", radius: 0 }] }; S.sel.uiScreen = id; touch(f); re(); } }, "+ New screen"),
+      info.own && info.builtin ? h("button", { class: "btn small danger", onclick: async () => { if (!(await sure(`Throw away your changes to '${sid}' and go back to the built-in screen?`))) return; delete S.files.ui.screens[sid]; st.sel = null; touch(f); re(); } }, "Back to built-in") : null,
+      info.own && !info.builtin ? h("button", { class: "btn small danger", onclick: async () => { if (!(await sure(`Delete the screen '${sid}'?`))) return; delete S.files.ui.screens[sid]; S.sel.uiScreen = null; touch(f); re(); } }, "Delete screen") : null));
   wrap.append(bar);
-  if (!info.own) {
-    wrap.append(h("div", { class: "card" }, h("p", {}, "This is the built-in screen. To change it, make it your own: your pack then keeps a copy that you can edit freely (and can throw away later)."),
-      h("button", { class: "btn primary", onclick: () => { const file = uiEnsureFile(); file.screens[sid] = clone(info.def); touch(f); re(); } }, "Customise this screen")));
-  }
+  if (!info.own) wrap.append(h("p", { class: "dim", style: "margin:-2px 0 10px" }, "This is the built-in screen. To change it, make it your own: your pack then keeps a copy that you can edit freely (and can throw away later)."));
   const def = info.def;
   const editable = info.own;
   // preview stage
