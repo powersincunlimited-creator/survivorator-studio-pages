@@ -73,6 +73,10 @@
     padding:4px 10px; border-radius:99px; border:1px solid var(--hair); flex:none; white-space:nowrap;
   }
   .nickname-label:hover{border-color:var(--cyan-dim); color:var(--cyan)}
+  button.nickname-label{background:transparent}
+  .hg.end{border-right:0; padding-right:0}
+  #btnActivity .badge{margin-left:6px; padding:0 6px; border-radius:99px; background:var(--cyan-dim); color:#fff; font-size:11px}
+  #btnActivity[aria-expanded="true"]{border-color:var(--cyan); color:var(--cyan)}
 
   .import-confirm{
     flex:none; padding:12px 18px; background:rgba(255,92,122,.12); border-bottom:1px solid var(--err);
@@ -353,11 +357,13 @@
 <div class="app">
   <header>
     <h1>Weapon <span>&amp;</span> Shot Editor</h1><div class="site-nav" role="navigation" aria-label="Studios"><a href="../">Packs</a><a href="../weapons/" aria-current="page">Weapons &amp; Shots</a><a href="../puppets/">Puppets</a><a href="../arena/">Arena</a></div>
-    <span class="status-pill" id="statusPill"><span class="dot"></span><span id="statusText">Loading&hellip;</span></span>
-    <span class="nickname-label" id="nicknameLabel" title="Click to change your display name">You: &mdash;</span>
+    <span class="status-pill" id="statusPill" role="status" aria-live="polite" title="Whether your changes are saved. Edits save by themselves a moment after you stop."><span class="dot"></span><span id="statusText">Loading&hellip;</span></span>
+    <button type="button" class="btn" id="btnSaveNow" hidden title="Save this shape now (it also saves by itself a moment after you stop editing)">Save now</button>
+    <button type="button" class="nickname-label" id="nicknameLabel" title="Your display name: it is shown next to your saves and to anyone else viewing the same shape. Click to change it.">You: &mdash;</button>
     <div class="spacer"></div>
     <div class="hg" role="group" aria-label="History"><button class="btn" id="btnUndo" disabled title="Undo the last change to this shape (Ctrl+Z)">&#8630; Undo</button><button class="btn" id="btnRedo" disabled title="Redo (Ctrl+Y)">&#8631; Redo</button></div>
-    <button class="btn" id="btnActivity" title="Recent changes across all shapes">Activity</button>
+    <div class="hg end" role="group" aria-label="Shape and file">
+    <button class="btn" id="btnActivity" type="button" aria-expanded="false" title="Recent changes across all shapes, by everyone">Activity<span class="badge" id="activityBadge" hidden></span></button>
     <div class="menu" id="shapeMenu">
       <button class="btn" id="shapeMenuBtn" type="button" aria-haspopup="menu" aria-expanded="false" title="Copy or paste this shape, or put it back to the one that ships">Shape &#9662;</button>
       <div class="menu-pop right" role="menu" hidden>
@@ -376,6 +382,7 @@
         <button class="btn" id="btnExport" title="Just this shape">Export shape</button>
         <button class="btn" id="btnExportAll" title="Every shape, seed + your edits">Export all shapes</button>
       </div>
+    </div>
     </div>
     <input type="file" id="importFile" accept="application/json,.json" hidden>
   </header>
@@ -3363,6 +3370,11 @@ function setStatus(cls, text){
   const pill = document.getElementById('statusPill');
   pill.className = 'status-pill ' + cls;
   document.getElementById('statusText').textContent = text;
+  const now = new Date(), hhmm = now.toTimeString().slice(0, 5);
+  const what = (cls === 'saved' ? text + ' at ' + hhmm : text).replace(/[.]+$/, '');
+  pill.title = firestoreReady ? what + '. Edits save by themselves a moment after you stop.' : what + '.';
+  const sn = document.getElementById('btnSaveNow');   // only when there is something not saved, and a place to save it
+  if(sn) sn.hidden = !(unsavedChanges && cls !== 'saving' && firestoreReady && current);
 }
 /* ---------- undo / redo (per shape, this tab only: switching shapes starts a new trail) ----------
    undoBase is the shape's state as it was when the last edit settled; the first edit after a quiet moment pushes it on the stack, and edits within 450 ms of each other (a drag, a slider) are one step. */
@@ -3379,7 +3391,8 @@ function noteEdit(){
 }
 function updateUndoButtons(){
   const u = document.getElementById('btnUndo'), r = document.getElementById('btnRedo');
-  if(u) u.disabled = !undoStack.length; if(r) r.disabled = !redoStack.length;
+  if(u){ u.disabled = !undoStack.length; u.title = undoStack.length ? 'Undo the last change to this shape (Ctrl+Z). ' + undoStack.length + ' step' + (undoStack.length === 1 ? '' : 's') + ' to go back.' : 'Nothing to undo on this shape yet (Ctrl+Z)'; }
+  if(r){ r.disabled = !redoStack.length; r.title = redoStack.length ? 'Redo (Ctrl+Y). ' + redoStack.length + ' step' + (redoStack.length === 1 ? '' : 's') + ' to go forward.' : 'Nothing to redo (Ctrl+Y)'; }
 }
 function undoRedo(dir){
   if(!current) return;
@@ -3411,6 +3424,7 @@ document.querySelectorAll('.menu').forEach(menu => {
   document.addEventListener('click', e => { if (!menu.contains(e.target)) close(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !pop.hidden) { close(); b.focus(); } });
 });
+document.getElementById('btnSaveNow').addEventListener('click', () => saveNow());
 document.getElementById('btnUndo').addEventListener('click', () => undoRedo(-1));
 document.getElementById('btnRedo').addEventListener('click', () => undoRedo(1));
 window.addEventListener('keydown', e => {
@@ -3634,12 +3648,17 @@ document.getElementById('importFile').addEventListener('change', async ev=>{
    own write coming back through the listener, etc.) while still solving
    the actual ask: know when a shape changed without having to reload. ---------- */
 function startLiveSync(){
+  let firstSnap = true;   // the first snapshot is everything already there, not news
   onSnapshot(collection(firestoreDb, 'shapes'), snap => {
     snap.docChanges().forEach(change => {
       if(change.type === 'removed'){ delete overrides[change.doc.id]; return; }
       const data = change.doc.data();
-      if(data && data.partsJson) overrides[change.doc.id] = fromFirestorePayload(data);
+      if(data && data.partsJson){
+        overrides[change.doc.id] = fromFirestorePayload(data);
+        if(!firstSnap && !change.doc.metadata.hasPendingWrites && data.updatedBy !== nickname && document.getElementById('activityPanel').hidden){ remoteNew++; setActivityBadge(); }
+      }
     });
+    firstSnap = false;
     buildNav(document.getElementById('navSearch').value);
     if(current) updateShapeMeta();
   }, e => console.error('Live sync error:', e));
@@ -3730,13 +3749,16 @@ async function loadRecentActivity(){
     list.innerHTML = '<div class="activity-empty">Couldn\'t load activity' + hint + '.</div>';
   }
 }
-document.getElementById('btnActivity').addEventListener('click', () => {
-  document.getElementById('activityPanel').hidden = false;
-  loadRecentActivity();
-});
-document.getElementById('btnActivityClose').addEventListener('click', () => {
-  document.getElementById('activityPanel').hidden = true;
-});
+let remoteNew = 0;   // shapes other people saved since you last looked at Activity
+function setActivityBadge(){ const b = document.getElementById('activityBadge'); b.hidden = !remoteNew; b.textContent = remoteNew + ' new'; }
+function showActivity(on){
+  const panel = document.getElementById('activityPanel'), btn = document.getElementById('btnActivity');
+  panel.hidden = !on; btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+  if(on){ remoteNew = 0; setActivityBadge(); loadRecentActivity(); }
+}
+document.getElementById('btnActivity').addEventListener('click', () => showActivity(document.getElementById('activityPanel').hidden));
+document.getElementById('btnActivityClose').addEventListener('click', () => showActivity(false));
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && !document.getElementById('activityPanel').hidden){ showActivity(false); document.getElementById('btnActivity').focus(); } });
 
 /* ---------- manual refresh — a fallback if a live listener ever silently
    drops (network blip, tab was asleep); re-fetches the overrides cache the

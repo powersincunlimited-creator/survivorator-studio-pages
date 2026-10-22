@@ -139,6 +139,11 @@ a.btn { text-decoration: none; color: var(--text); display: inline-block; }
 .bargroup:last-child { border-right: 0; }
 .bargroup select { max-width: 280px; }
 
+/* hero effects: Tuning card */
+.subhead { font-weight: 600; color: var(--dim); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; margin: 10px 0 0; }
+.row.off > label { opacity: 0.6; }
+.row .hint.ok { color: var(--good, #4fe39a); }
+
 </style>
 <style>
 .site-nav{display:inline-flex;gap:4px;align-items:center;margin:0 6px;flex:none}
@@ -2934,7 +2939,42 @@ function tabLooks() {
 
 // ================================================================ HERO EFFECTS
 const VFX_LAYERS = [["aura", "idle aura (always on)"], ["motion", "while running"], ["cast", "when a power fires"], ["impact", "when its hits land"], ["crit", "on a critical hit"], ["level_up", "on levelling up"], ["low_hp", "at low health"], ["dodge", "on a dodge"], ["hurt", "when hurt"], ["heal", "when healed"], ["summon", "when it summons"], ["deploy", "when it deploys a turret / mine"]];
-const VFX_TUNING = [["arc_rate", "arcs per second"], ["ghost_gap", "time between afterimages (s)"], ["ember_rate", "embers per second"], ["stride", "distance per footprint (px)"], ["wisp_rate", "wisps per second"]];
+// the settings a style reads (hero_vfx.gd): the key, the style that reads it, the game's own default and what it does
+const VFX_TUNING = [
+  { key: "ember_rate", label: "Embers per second", layer: "aura", style: "embers", def: 3.5, step: 0.5, min: 0, unit: "per second", help: "How many embers lift off the hero's shoulders and fists. More looks fiercer." },
+  { key: "arc_rate", label: "Arcs per second", layer: "aura", style: "arcs", def: 9, step: 1, min: 0, unit: "per second", help: "How many small lightning arcs crackle over the body each second." },
+  { key: "stride", label: "Distance per footprint", layer: "motion", style: "stomp", def: 38, step: 2, min: 4, unit: "px", help: "How far the hero runs between dust puffs. Smaller gives more dust. Every third step also sends out a shock ring." },
+  { key: "wisp_rate", label: "Wisps per second", layer: "motion", style: "wisps", def: 6, step: 1, min: 0, unit: "per second", help: "How many wisps trail behind a running hero (only while it moves)." },
+  { key: "ghost_gap", label: "Time between afterimages", layer: "motion", style: "afterimage", def: 0.07, step: 0.01, min: 0.01, unit: "seconds", help: "Three ghosts follow a fast-running hero, this far apart in time. Bigger makes a longer, more spread-out trail." },
+];
+const VFX_LAYER_WORD = { aura: "idle aura", motion: "running style" };
+
+/* The Tuning card: each setting belongs to ONE style and only does anything while this hero uses that style, so every row says which style, whether this hero uses it, and what the game does when the box is empty. */
+function tuningCard(p, f, re) {
+  const inUse = t => p[t.layer] === t.style;
+  const rows = [];
+  for (const layer of ["aura", "motion"]) {
+    const mine = VFX_TUNING.filter(t => t.layer === layer);
+    rows.push(h("div", { class: "subhead" }, layer === "aura" ? "Idle aura (always on)" : "Running style (while it moves)"));
+    for (const t of mine) {
+      const on = inUse(t), set = p[t.key] !== undefined;
+      const input = numField(p, t.key, f, { optional: true, min: t.min, step: t.step, def: t.def, after: re });
+      input.addEventListener("change", () => { if (input.value !== "" && Number(input.value) < t.min) { p[t.key] = t.min; touch(f); re(); } });   // (a footprint distance of 0 would never finish a step)
+      const reset = set ? h("button", { class: "btn small", title: "Empty the box: the game uses its own " + t.def, onclick: () => { delete p[t.key]; touch(f); re(); } }, "↺ default") : null;
+      const state = on
+        ? h("div", { class: "hint ok" }, `In use: this hero's ${VFX_LAYER_WORD[layer]} is "${t.style}".`)
+        : h("div", { class: "hint" }, `Does nothing yet: it belongs to the "${t.style}" ${VFX_LAYER_WORD[layer]}, and this hero's is ${p[layer] ? '"' + p[layer] + '"' : "not set"}. `,
+            h("button", { class: "btn small", onclick: () => { p[t.layer] = t.style; touch(f); re(); } }, `Use "${t.style}"`));
+      const r = row(t.label, [input, h("span", { class: "unit" }, `${t.unit}  ·  default ${t.def}`), reset], null, set);
+      r.querySelector(":scope > div").append(h("div", { class: "hint" }, t.help), state);
+      if (!on) r.classList.add("off");
+      rows.push(r);
+    }
+  }
+  const n = VFX_TUNING.filter(inUse).length;
+  return h("details", { class: "card", open: n > 0 }, h("summary", {}, `Tuning (${n} of ${VFX_TUNING.length} apply to this hero)`),
+    h("p", { class: "dim" }, "Fine-tune how often a style's effect happens. Each setting belongs to one style and only counts while this hero uses it. Leave a box empty to use the game's own value (shown greyed in the box)."), rows);
+}
 
 function tabEffects() {
   const prof = S.files.hero_effects.profiles = S.files.hero_effects.profiles || {};
@@ -2966,7 +3006,7 @@ function tabEffects() {
       section("Always on", ["aura", "motion"]),
       section("When it attacks", ["cast", "impact", "crit", "summon", "deploy"]),
       section("When something happens to the hero", ["level_up", "low_hp", "dodge", "hurt", "heal"]),
-      h("details", { class: "card" }, h("summary", {}, "Tuning"), VFX_TUNING.map(([k, label]) => row(label, numField(p, k, f, { optional: true, min: 0 }), null, p[k] !== undefined)), h("p", { class: "dim" }, "Only the ones a chosen style reads do anything.")));
+      tuningCard(p, f, re));
   }
   wrap.append(h("div", { class: "split" }, list, form));
   return wrap;
