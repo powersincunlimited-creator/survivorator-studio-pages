@@ -130,6 +130,8 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--wl, 3
 #edit { width: 100%; height: 100%; display: block; touch-action: none; cursor: default; }
 #editTools { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
 #editHint { position: absolute; left: 10px; bottom: 8px; font: 11px var(--f-mono); color: var(--dim); pointer-events: none; }
+#pvWrap[data-bg="mid"] { background: #6d7390; } #pvWrap[data-bg="light"] { background: #dfe3f2; }
+#pvWrap[data-bg="check"] { background: repeating-conic-gradient(#2a2e4a 0% 25%, #1a1d33 0% 50%) 0 0 / 22px 22px; }
 #pvWrap { background: #0d0e19; aspect-ratio: 1 / 0.9; position: relative; flex: none; min-height: 120px; }
 #pv { width: 100%; height: 100%; display: block; }
 .pvbar { padding: 8px 12px; display: grid; gap: 7px; }
@@ -240,6 +242,8 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
         <div class="pvrow"><span class="gl">Facing</span><div class="seg" id="pvFace" role="group" aria-label="Preview facing" title="Which way the LIVE PREVIEW faces (it does not change the drawing you are editing)."><button type="button" data-f="down">Front</button><button type="button" data-f="up">Back</button><button type="button" data-f="left" class="on">Left</button><button type="button" data-f="right">Right</button></div></div>
         <div class="pvrow"><span class="gl">Motion</span><div class="seg" id="pvMove" role="group" aria-label="Motion"><button type="button" data-m="idle">Idle</button><button type="button" data-m="run" class="on">Run</button></div></div>
         <div class="pvrow"><span class="gl">Arm</span><div class="seg" id="pvAim" role="group" aria-label="Arm aim"><button type="button" data-a="off">No aim</button><button type="button" data-a="sweep" class="on">Sweep</button><button type="button" data-a="fixed">Fixed</button><button type="button" id="pvFire">Fire</button></div></div>
+        <div class="pvrow"><span class="gl">Speed</span><div class="seg" id="pvSpeed" role="group" aria-label="Preview speed" title="Slow the preview down to study a motion, or pause it. The aim sweep and the run cycle both follow."><button type="button" data-s="0" title="Pause the preview">Pause</button><button type="button" data-s="0.25">&frac14;&times;</button><button type="button" data-s="0.5">&frac12;&times;</button><button type="button" data-s="1" class="on">1&times;</button></div></div>
+        <div class="pvrow"><span class="gl">Ground</span><div class="seg" id="pvBg" role="group" aria-label="Preview background" title="The colour the preview is drawn on: a light ground shows up the outlines and a dark one the glow"><button type="button" data-bg="dark" class="on">Dark</button><button type="button" data-bg="mid">Mid</button><button type="button" data-bg="light">Light</button><button type="button" data-bg="check">Checker</button></div></div>
         <div class="pvrow pvsl"><div class="f"><label for="pvAngle">Aim °</label><input id="pvAngle" type="range" min="-180" max="180" value="0"></div><div class="f"><label for="pvAccent">Accent</label><input id="pvAccent" type="color" value="#35a6ff"></div></div>
       </div>
     </div>
@@ -1067,11 +1071,12 @@ function pvLoop(now) {
   const dt = Math.min((now - last) / 1000, 0.05); last = now;
   const w = pvSvg.clientWidth || 360, h = pvSvg.clientHeight || 324, S = Math.min(w, h) / 82;
   pvSvg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  const sp = ui.pvSpeed === undefined ? 1 : ui.pvSpeed, sdt = dt * sp; ui.pvT = (ui.pvT || 0) + sdt;
   let aim = null;
-  if (ui.pvAim === "sweep") { const a = now / 1000 * 0.9; aim = [Math.cos(a), Math.sin(a)]; }
+  if (ui.pvAim === "sweep") { const a = ui.pvT * 0.9; aim = [Math.cos(a), Math.sin(a)]; }
   else if (ui.pvAim === "fixed") { const a = ui.pvAngle * Math.PI / 180; aim = [Math.cos(a), Math.sin(a)]; }
   let face = ui.pvFace;
-  runner.step(dt, ui.pvMove === "run" ? 210 : 0, face, aim);
+  runner.step(sdt, ui.pvMove === "run" ? 210 : 0, face, aim);   // (paused = a step of 0: the pose holds, and a change of facing still shows)
   if (runner.view !== pvViewName || pvDocVer !== docVer) rebuildPreview();
   const world = $("pvWorld"); if (world) world.setAttribute("transform", `translate(${w / 2} ${h / 2 + 2 * S}) scale(${S * (+doc.anim.puppet_scale || 1)})`);
   applyPose(pvBuilt.groups, runner.pose());
@@ -2126,6 +2131,8 @@ $("showAll").addEventListener("click", () => { [...ui.hiddenParts].forEach(k => 
 $("pvFace").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; ui.pvFace = b.dataset.f; [...$("pvFace").children].forEach(x => x.classList.toggle("on", x === b)); });
 $("pvMove").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; ui.pvMove = b.dataset.m; [...$("pvMove").children].forEach(x => x.classList.toggle("on", x === b)); });
 $("pvAim").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; if (b.id === "pvFire") { runner.kick(); return; } ui.pvAim = b.dataset.a; [...$("pvAim").children].forEach(x => { if (x.dataset.a) x.classList.toggle("on", x === b); }); });
+$("pvSpeed").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; ui.pvSpeed = +b.dataset.s; [...$("pvSpeed").children].forEach(x => x.classList.toggle("on", x === b)); });
+$("pvBg").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; $("pvWrap").dataset.bg = b.dataset.bg; [...$("pvBg").children].forEach(x => x.classList.toggle("on", x === b)); });
 $("pvAngle").addEventListener("input", e => { ui.pvAngle = +e.target.value; ui.pvAim = "fixed"; [...$("pvAim").children].forEach(x => { if (x.dataset.a) x.classList.toggle("on", x.dataset.a === "fixed"); }); });
 $("pvAccent").addEventListener("input", e => { ui.accent = e.target.value; render(); });
 window.addEventListener("resize", () => { renderEdit(); });
