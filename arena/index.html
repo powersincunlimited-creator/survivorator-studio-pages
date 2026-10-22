@@ -186,7 +186,8 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
     <div id="editWrap">
       <canvas id="cv" tabindex="0" aria-label="Arena canvas"></canvas>
       <div id="tools">
-        <div class="tg" role="group" aria-label="Zoom"><button type="button" id="fitBtn" title="Frame the whole arena">Fit arena</button><button type="button" id="zoomOutBtn" title="Zoom out">&minus;</button><button type="button" id="zoomInBtn" title="Zoom in (or pinch with two fingers)">+</button><button type="button" id="selBtn" title="Zoom to the selected prop">Zoom to prop</button></div>
+        <div class="tg" role="group" aria-label="Zoom"><button type="button" id="fitBtn" title="Frame the whole arena">Fit arena</button><button type="button" id="zoomOutBtn" title="Zoom out">&minus;</button><button type="button" id="zoomInBtn" title="Zoom in (or pinch with two fingers)">+</button><button type="button" id="oneBtn" title="Actual size: one game unit is one screen pixel, as the game's camera sees it at zoom 1">1:1</button><button type="button" id="selBtn" title="Zoom to the selected prop">Zoom to prop</button></div>
+        <div class="tg" role="group" aria-label="Snap" title="Where a prop lands when you drag it (hold Ctrl to drag without snapping)"><select id="snapSel"><option value="auto">Snap: automatic</option><option value="0">Snap: off</option><option value="1">Snap: 1</option><option value="5">Snap: 5</option><option value="10">Snap: 10</option><option value="25">Snap: 25</option><option value="50">Snap: 50</option><option value="100">Snap: 100</option></select></div>
         <div class="tg" role="group" aria-label="Show on the canvas" title="What the canvas shows (view only: the arena itself does not change)"><button type="button" id="gridBtn">Grid</button><button type="button" id="wallBtn" class="on" title="Mark the walls (the playable area) on the canvas">Walls</button><button type="button" id="camBtn" title="Show what the game camera sees (solo view, and the zoomed-out co-op view) around the cursor">Camera frame</button><button type="button" id="glowBtn" class="on" title="Additive light layers on / off">Light</button><button type="button" id="outlinesBtn" class="on" title="Show or hide every part outline in this editor, to see the shapes underneath. View only: the outlines are not changed and the game still draws them.">Outlines</button></div>
       </div>
       <div id="hintBar">click a prop · drag it · wheel zooms · hold Space (or middle-drag) to pan · Edit shape to move points · arrows nudge · Delete removes</div>
@@ -867,7 +868,7 @@ function draw() {
   }
   drawSelection();
   ctx.restore();
-  $("coord").textContent = ui.mouse ? `x ${Math.round(ui.mouse[0])}  y ${Math.round(ui.mouse[1])}   zoom ${ui.zoom.toFixed(2)}` : "";
+  $("coord").textContent = ui.mouse ? `x ${Math.round(ui.mouse[0])}  y ${Math.round(ui.mouse[1])}   zoom ${Math.round(ui.zoom * 100)}%` : "";
 }
 function propVisible(p, view) { const b = propBounds(p); return !(b[2] < view[0] || b[0] > view[2] || b[3] < view[1] || b[1] > view[3]); }
 function drawGrid() {
@@ -987,9 +988,9 @@ cv.addEventListener("pointerdown", e => {
 });
 cv.addEventListener("pointermove", e => {
   syncSize(); const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top, X = sx(px), Y = sy(py); ui.mouse = [X, Y];
-  if (!drag) { if (ui.cam) redraw(); else $("coord").textContent = `x ${Math.round(X)}  y ${Math.round(Y)}   zoom ${ui.zoom.toFixed(2)}`; return; }
+  if (!drag) { if (ui.cam) redraw(); else $("coord").textContent = `x ${Math.round(X)}  y ${Math.round(Y)}   zoom ${Math.round(ui.zoom * 100)}%`; return; }
   if (drag.kind === "pan") { ui.pan = [drag.pan[0] - (px - drag.px) / ui.zoom, drag.pan[1] - (py - drag.py) / ui.zoom]; redraw(); }
-  else if (drag.kind === "move") { const dx = X - drag.start[0], dy = Y - drag.start[1]; if (!drag.moved && Math.hypot(dx, dy) * ui.zoom < 3) return; drag.moved = true; const g = e.ctrlKey ? 0 : (ui.zoom > 0.4 ? 5 : 10); const nx = drag.orig[0] + dx, ny = drag.orig[1] + dy; drag.p.pos = [g ? Math.round(nx / g) * g : nx, g ? Math.round(ny / g) * g : ny]; markDirty(); redraw(); renderInspector(true); }
+  else if (drag.kind === "move") { const dx = X - drag.start[0], dy = Y - drag.start[1]; if (!drag.moved && Math.hypot(dx, dy) * ui.zoom < 3) return; drag.moved = true; const g = e.ctrlKey ? 0 : (ui.snap === undefined || ui.snap === "auto" ? (ui.zoom > 0.4 ? 5 : 10) : +ui.snap); const nx = drag.orig[0] + dx, ny = drag.orig[1] + dy; drag.p.pos = [g ? Math.round(nx / g) * g : nx, g ? Math.round(ny / g) * g : ny]; markDirty(); redraw(); renderInspector(true); }
   else if (drag.kind === "vertex") { const [ix, iy] = instOf(drag.p); const [lx, ly] = worldToLocal(drag.p, ix, iy, X, Y); const q = partLocal(drag.pt, lx, ly); drag.pt.points[drag.v] = [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10]; markDirty(); redraw(); }
 });
 cv.addEventListener("pointerup", () => {
@@ -1339,6 +1340,8 @@ $("showAllProps").addEventListener("click", () => { ui.hidden.clear(); renderPro
 $("expandLayers").addEventListener("click", () => { ui.collapsed.clear(); renderProps(); });
 $("collapseLayers").addEventListener("click", () => { doc.props.forEach(pr => ui.collapsed.add(pr.layer || "misc")); renderProps(); });
 $("filter").addEventListener("keydown", e => { if (e.key === "Escape") { $("filter").value = ""; ui.filter = ""; renderProps(); } });
+$("oneBtn").addEventListener("click", () => { ui.zoom = 1; redraw(); });
+$("snapSel").addEventListener("change", e => { ui.snap = e.target.value; });
 $("undo").addEventListener("click", undo); $("redo").addEventListener("click", redo);
 $("saveBtn").addEventListener("click", () => saveCloud(false));
 $("reloadBtn").addEventListener("click", async () => { if (!cloudOk) { setStatus("not connected", "bad"); return; } const c = await loadCloud(); snapshot(); doc = c && !validate(c.doc) ? c.doc : clone(DEFAULT); validate(doc); ui.sel = null; dirty = false; try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} render(); setStatus(); });

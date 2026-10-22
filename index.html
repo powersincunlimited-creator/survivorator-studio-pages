@@ -2297,7 +2297,15 @@ const SHAPE_INFO = {
   WAVE: { label: "wave", help: "A wide wall of force that rolls outward and shoves.", fields: [["range", 340, "px it travels"], ["speed", 720, "px/s"], ["wave_width", 100, "px wide"], ["knockback", 0, "shove"]] },
 };
 const STATUS_HELP = { slow: "value = speed multiplier (0.5 = half speed)", burn: "value = damage per second", poison: "value = damage per second (lower, longer than burn)", bleed: "value = damage per second (punchy, short)", mark: "value = extra damage taken (0.25 = +25%)", weaken: "value = the weakened enemy's outgoing damage multiplier", stun: "value unused", charm: "value unused", hold: "value unused", blind: "value unused", disarm: "value unused", freeze: "value unused", fear: "value unused" };
-const POWER_BASIC = ["id", "name", "shape", "damage", "damage_type", "cooldown", "tags", "effect", "flat_scale", "taunt", "starter_only", "vfx", "drone_flavor"];
+// the named looks power.gd knows (anything else in a pack's vfx is ignored by the game)
+const VFX_STYLES = [
+  ["gust", "Gust (melee swing / cone): a fan of pale wind streaks"],
+  ["cryo_cone", "Cryo cone (melee swing / cone): a cold cone with wind in it"],
+  ["frost_ring", "Frost ring (nova): an ice-blue frost nova"],
+  ["guard_pulse", "Guard pulse (nova): a guard ring in the damage colour"],
+];
+const DRONE_FLAVORS = [["robot", "Robot: a hex chassis with a lens eye"], ["imp", "Imp: a small horned creature"], ["sidekick", "Sidekick: a small hero helper"]];
+const POWER_BASIC =["id", "name", "shape", "damage", "damage_type", "cooldown", "tags", "effect", "flat_scale", "taunt", "starter_only", "vfx", "drone_flavor"];
 
 function statLabel(k) { return DATA.consts.stat_labels[k] || k.replace(/_/g, " "); }
 function isPct(k) { return DATA.consts.pct_stats.includes(k); }
@@ -2498,8 +2506,8 @@ function powerForm(p, f = "powers", opts = {}) {
   out.append(h("details", { class: "card" }, h("summary", {}, "Flags"),
     row("starter only", boolField(p, "starter_only", f, { optional: true }), "Never sold in the shop or dropped: only a hero can start with it."),
     row("taunt", boolField(p, "taunt", f, { optional: true }), "Enemies it hits turn on this hero."),
-    row("effect style (vfx)", textField(p, "vfx", f, { optional: true }), "A named visual style some shapes know (gust, cryo_cone, guard_pulse and so on)."),
-    row("drone flavour", textField(p, "drone_flavor", f, { optional: true }), "For drones: which kind of helper it is.")));
+    row("effect style (vfx)", selectField(p, "vfx", f, VFX_STYLES, { optional: true, emptyLabel: "(none: the normal look)" }), "A special look for a few shapes. Only these four do anything; on any other shape it is ignored. Melee swings and cones know gust and cryo cone, novas know frost ring and guard pulse."),
+    row("drone flavour", selectField(p, "drone_flavor", f, DRONE_FLAVORS, { optional: true, emptyLabel: "(automatic)" }), "Drones only: which helper it is. Automatic gives an imp to a magic drone and a robot to any other.")));
   // other fields: anything not covered above stays editable
   const known = new Set([...POWER_BASIC, ...info.fields.map(x => x[0]), ...(opts.noId ? ["unique", "recipe_key"] : [])]);
   const rest = Object.keys(p).filter(k => !known.has(k));
