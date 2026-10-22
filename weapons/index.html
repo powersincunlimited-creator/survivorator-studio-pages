@@ -175,6 +175,9 @@
       var(--bg);
     overflow:hidden;
   }
+  .canvas-wrap[data-ground="mid"]{background:#6d7390}
+  .canvas-wrap[data-ground="light"]{background:#dfe3f2}
+  .canvas-wrap[data-ground="check"]{background:repeating-conic-gradient(#2a2e4a 0% 25%, #1a1d33 0% 50%) 0 0 / 24px 24px}
   svg.stage{width:100%; height:100%; display:block; touch-action:none; cursor:grab}
   svg.stage.panning{cursor:grabbing}
   .vert{cursor:grab}
@@ -405,6 +408,8 @@
           <span class="presence-badge" id="presenceBadge" hidden></span>
           <div class="tg" role="group" aria-label="Turn the whole drawing" title="Turn the whole drawing about its origin"><button class="btn sm" id="btnShapeFlipH" title="Mirror the whole drawing left-right (about the grip / origin)">&#8596; Flip shape</button><button class="btn sm" id="btnShapeFlipV" title="Mirror the whole drawing top-bottom (about the grip / origin)">&#8597; Flip shape</button><button class="btn sm" id="btnShapeRotL" title="Rotate the whole drawing 15 degrees anticlockwise about the origin">&#8634; 15&deg;</button><button class="btn sm" id="btnShapeRotR" title="Rotate the whole drawing 15 degrees clockwise about the origin">&#8635; 15&deg;</button></div>
           <div class="tg" role="group" aria-label="View"><button class="btn sm on" id="btnOutlines" title="Show or hide every part outline in this editor, to see the shapes underneath. View only: the outlines are not changed and the game still draws them.">Outlines</button><button class="btn sm" id="btnPreview" title="Play every part's motion preset">&#9654; Motion</button></div>
+          <div class="tg" role="group" aria-label="Playback speed" id="pbSpeed" title="How fast Motion / Play runs: slow it down to study a motion, or pause it"><button class="btn sm" data-s="0" title="Pause the preview (the pose holds)">Pause</button><button class="btn sm" data-s="0.25">&frac14;&times;</button><button class="btn sm" data-s="0.5">&frac12;&times;</button><button class="btn sm on" data-s="1">1&times;</button></div>
+          <div class="tg" role="group" aria-label="Ground"><select id="selGround" title="The colour behind the drawing, in this editor only: a light ground shows up the outlines, a dark one the glow"><option value="dark">Dark ground</option><option value="mid">Mid ground</option><option value="light">Light ground</option><option value="check">Checker</option></select></div>
           <div class="tg" role="group" aria-label="Zoom"><button class="btn" id="btnZoomOut">&minus;</button><button class="btn" id="btnZoomReset">Fit</button><button class="btn" id="btnZoomIn">&plus;</button></div>
         </div>
         <div class="canvas-wrap" id="canvasWrap">
@@ -2121,6 +2126,8 @@ let meta = {};             // live working copy of the current shape's settings 
 let outlinesOn = true;     // view only: show/hide every outline in this editor (the saved outlines are not touched)
 let previewOn = false;     // motion preview playing
 let previewT = 0;          // preview clock, seconds
+let previewTs = 0;         // the last frame's time stamp
+let pbSpeedW = 1;          // playback speed: 1 normal, 0 paused (view only)
 let activePart = 0;
 let activeVert = -1;
 let saveTimer = null;
@@ -2465,11 +2472,11 @@ let previewRaf = 0, previewStart = 0, previewLoopsEvery = 0;
 // test hook: drive the preview clock by hand (the page's rAF loop is paused while the tab is hidden)
 window.__ed = {setPreviewT(t){ previewOn = true; previewT = t; renderStage(); }, state(){ return {parts, meta, previewOn}; }, effectDuration(){ return effectDuration(); }};
 function startPreview(){
-  previewOn = true; previewStart = performance.now();
+  previewOn = true; previewStart = performance.now(); previewT = 0; previewTs = previewStart;
   document.getElementById('btnPreview').classList.add('on');
   document.getElementById('btnPreview').innerHTML = '&#9632; Stop';
   previewLoopsEvery = (current && current.ns === 'effects' && !meta.loop) ? effectDuration() + 0.6 : 0;
-  const tick = ts => { if(!previewOn) return; previewT = (ts - previewStart)/1000; renderStage(); previewRaf = requestAnimationFrame(tick); };
+  const tick = ts => { if(!previewOn) return; previewT += Math.min(Math.max((ts - previewTs)/1000, 0), 0.1) * pbSpeedW; previewTs = ts; renderStage(); previewRaf = requestAnimationFrame(tick); };
   previewRaf = requestAnimationFrame(tick);
 }
 function stopPreview(quiet){
@@ -2508,6 +2515,8 @@ document.getElementById('btnShapeFlipH').addEventListener('click', ()=>{ if(curr
 document.getElementById('btnShapeFlipV').addEventListener('click', ()=>{ if(current) flipShape(false); });
 document.getElementById('btnShapeRotL').addEventListener('click', ()=>{ if(current) rotateShapeDeg(-15); });
 document.getElementById('btnShapeRotR').addEventListener('click', ()=>{ if(current) rotateShapeDeg(15); });
+document.getElementById('pbSpeed').addEventListener('click', e => { const b = e.target.closest('button'); if(!b) return; pbSpeedW = +b.dataset.s; [...document.getElementById('pbSpeed').children].forEach(x => x.classList.toggle('on', x === b)); });
+document.getElementById('selGround').addEventListener('change', e => { document.getElementById('canvasWrap').dataset.ground = e.target.value; });
 document.getElementById('btnPreview').addEventListener('click', ()=>{ if(previewOn) stopPreview(); else if(current) startPreview(); });
 function shapeBounds(){
   let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
