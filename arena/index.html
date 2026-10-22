@@ -80,6 +80,8 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--wl, 2
 #propList .row.off .nm, #propList .row.off .eye { color: var(--dim); text-decoration: line-through; }
 #propList .row .ct { color: var(--dim); font-size: 10px; flex: none; }
 #propList .row .tag { color: var(--magenta); font-size: 10px; flex: none; }
+.proptools { display: flex; align-items: center; gap: 6px; padding: 0 8px 4px; }
+#propList .none { padding: 10px 12px; color: var(--dim); font: 12px var(--f-body); }
 #filter { width: calc(100% - 16px); margin: 6px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 4px 6px; }
 #inspector { padding: 10px 12px; display: grid; gap: 8px; align-content: start; }
 .f { display: grid; grid-template-columns: 78px 1fr; gap: 8px; align-items: center; }
@@ -168,8 +170,9 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
 <div id="banner" hidden></div>
 <main>
   <div class="col" id="left">
-    <div class="sec" style="flex: 1 1 50%"><h2>Props <span class="sp"></span><button type="button" id="dupBtn" title="Duplicate the selected prop (Ctrl+D)">Duplicate</button><button type="button" id="delBtn" class="danger" title="Delete the selected prop (Delete)">Delete</button></h2>
-      <input id="filter" type="text" placeholder="filter props…" aria-label="Filter props">
+    <div class="sec" style="flex: 1 1 50%"><h2><span id="propsTitle">Props</span> <span class="sp"></span><button type="button" id="dupBtn" title="Duplicate the selected prop (Ctrl+D)">Duplicate</button><button type="button" id="delBtn" class="danger" title="Delete the selected prop (Delete)">Delete</button></h2>
+      <input id="filter" type="text" placeholder="filter props…" aria-label="Filter props" title="Matches a prop's name, id or layer. Escape clears.">
+      <div class="proptools"><button type="button" id="showAllProps" class="sm" hidden title="Show every prop and layer you have hidden (editing view only)">Show all</button><span class="sp"></span><span class="tg" role="group" aria-label="Layers"><button type="button" id="expandLayers" class="sm" title="Open every layer in the list">Expand</button><button type="button" id="collapseLayers" class="sm" title="Close every layer in the list">Collapse</button></span></div>
       <div class="scroll" id="propList"></div>
     </div>
     <div class="sec" style="flex: 0 0 auto"><h2>Add</h2>
@@ -1056,16 +1059,19 @@ function duplicatePart() { const p = sel(); if (!p || ui.part < 0) return; snaps
 /* ---------- panels ---------- */
 function renderProps() {
   const box = $("propList"); box.innerHTML = ""; const f = ui.filter.toLowerCase();
+  let shown = 0;
   const layers = [...new Set(doc.props.map(p => p.layer || "misc"))].sort((a, b) => (LAYER_ORDER.indexOf(a) + 1 || 99) - (LAYER_ORDER.indexOf(b) + 1 || 99));
   layers.forEach(L => {
-    const ps = doc.props.filter(p => (p.layer || "misc") === L && (!f || (p.name || p.id).toLowerCase().includes(f) || p.id.toLowerCase().includes(f)));
+    const ps = doc.props.filter(p => (p.layer || "misc") === L && (!f || (p.name || p.id).toLowerCase().includes(f) || p.id.toLowerCase().includes(f) || L.toLowerCase().includes(f)));
     if (!ps.length) return;
+    shown += ps.length;
+    const closed = !f && ui.collapsed.has(L);   // (a filter opens every layer that has a match)
     const g = document.createElement("div"); g.className = "grp"; const lh = ui.hidden.has("layer:" + L);
-    g.innerHTML = `<span class="eye">${lh ? "○" : "●"}</span><span>${ui.collapsed.has(L) ? "▸" : "▾"} ${L}</span><span class="ct" style="margin-left:auto;color:var(--dim)">${ps.length}</span>`;
+    g.innerHTML = `<span class="eye">${lh ? "○" : "●"}</span><span>${closed ? "▸" : "▾"} ${L}</span><span class="ct" style="margin-left:auto;color:var(--dim)">${ps.length}</span>`;
     g.querySelector(".eye").addEventListener("click", e => { e.stopPropagation(); lh ? ui.hidden.delete("layer:" + L) : ui.hidden.add("layer:" + L); renderProps(); redraw(); });
     g.addEventListener("click", () => { ui.collapsed.has(L) ? ui.collapsed.delete(L) : ui.collapsed.add(L); renderProps(); });
     box.appendChild(g);
-    if (ui.collapsed.has(L)) return;
+    if (closed) return;
     ps.forEach(p => {
       const r = document.createElement("div"); r.className = "row" + (p.id === ui.sel ? " sel" : "") + (ui.hidden.has(p.id) ? " off" : "");
       const rp = p.repeat ? `×${(p.repeat.nx || 1) * (p.repeat.ny || 1)}` : "";
@@ -1076,6 +1082,11 @@ function renderProps() {
       box.appendChild(r);
     });
   });
+  if (f && !shown) { const n = document.createElement("div"); n.className = "none"; n.textContent = "No prop matches \u201c" + ui.filter.trim() + "\u201d."; box.appendChild(n); }
+  $("propsTitle").textContent = f ? `Props (${shown} of ${doc.props.length})` : `Props (${doc.props.length})`;
+  $("filter").placeholder = `filter ${doc.props.length} props…`;
+  const hid = ui.hidden.size; $("showAllProps").hidden = !hid; $("showAllProps").textContent = "Show all (" + hid + ")";
+  const sel = box.querySelector(".row.sel"); if (sel) sel.scrollIntoView({ block: "nearest" });   // a prop picked on the canvas is brought into view in the list
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 function num(label, get, set, step = 1, extra = "") { return { label, kind: "num", get, set, step, extra }; }
@@ -1288,6 +1299,10 @@ document.querySelectorAll(".menu").forEach(menu => {
   document.addEventListener("click", e => { if (!menu.contains(e.target)) close(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && !pop.hidden) { close(); b.focus(); } });
 });
+$("showAllProps").addEventListener("click", () => { ui.hidden.clear(); renderProps(); redraw(); });
+$("expandLayers").addEventListener("click", () => { ui.collapsed.clear(); renderProps(); });
+$("collapseLayers").addEventListener("click", () => { doc.props.forEach(pr => ui.collapsed.add(pr.layer || "misc")); renderProps(); });
+$("filter").addEventListener("keydown", e => { if (e.key === "Escape") { $("filter").value = ""; ui.filter = ""; renderProps(); } });
 $("undo").addEventListener("click", undo); $("redo").addEventListener("click", redo);
 $("saveBtn").addEventListener("click", () => saveCloud(false));
 $("reloadBtn").addEventListener("click", async () => { if (!cloudOk) { setStatus("not connected", "bad"); return; } const c = await loadCloud(); snapshot(); doc = c && !validate(c.doc) ? c.doc : clone(DEFAULT); validate(doc); ui.sel = null; dirty = false; try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} render(); setStatus(); });
