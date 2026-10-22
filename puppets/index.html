@@ -122,7 +122,17 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--wl, 3
 .ig .chk { display: flex; gap: 5px; align-items: center; font-size: 12px; color: var(--dim); }
 .ig .btns.q { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }   /* four or six buttons: a tidy 2-wide grid */
 .ig .pair { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; align-items: center; }   /* a number box and its button */
-.ig-danger { display: flex; gap: 6px; padding-top: 2px; }
+.insbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.insname { min-width: 0; display: grid; flex: 1 1 120px; }
+.insname b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.insname span { color: var(--dim); font: 11px var(--f-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.insbar .btns { gap: 4px; flex-wrap: nowrap; }
+.insbar button { padding: 3px 8px; font-size: 12px; }
+.isec > summary .badge { margin-left: auto; font: 500 10px var(--f-mono); color: var(--dim); text-transform: none; letter-spacing: 0.04em; }
+.ig .ro { font: 12px var(--f-mono); padding: 4px 0; }
+.glance .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.glance .row button { padding: 2px 8px; font-size: 12px; }
+.glance .bad { color: var(--bad); }
 @container (max-width: 230px) { .ig, .ig .ig2 { grid-template-columns: minmax(0, 1fr); } }
 .btns { display: flex; flex-wrap: wrap; gap: 6px; }
 .hint { color: var(--dim); font-size: 12px; margin: 0; }
@@ -209,7 +219,7 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
     <div class="gv" data-col="wl" title="Drag to resize the panel · double-click to reset"></div>
     <div class="sec" style="flex: 1 1 40%"><h2 class="hd">Parts <span class="sp"></span><button type="button" id="showAll" hidden title="Show every part you have hidden in this view">Show all</button><span class="tg2" role="group" aria-label="Sections"><button type="button" id="expandAll" title="Expand every section">Expand</button><button type="button" id="collapseAll" title="Collapse every section">Collapse</button></span></h2><input type="search" id="treeFilter" placeholder="Filter parts by name…" aria-label="Filter parts" title="Show only the parts whose name, rig name or picture matches (a matching pivot shows everything inside it). Escape clears."><div class="scroll" id="tree"></div></div>
     <div class="gh" id="ghLeft" title="Drag to resize Parts / Inspector · double-click to reset"></div>
-    <div class="sec" style="flex: 1 1 60%"><h2>Inspector</h2><div class="scroll"><div id="inspector"></div></div></div>
+    <div class="sec" style="flex: 1 1 60%"><h2 class="hd">Inspector <span class="sp"></span><span class="tg2" role="group" aria-label="Sections"><button type="button" id="insExpand" title="Open every section of the inspector">Expand</button><button type="button" id="insCollapse" title="Close every section of the inspector">Collapse</button></span></h2><div class="scroll"><div id="inspector"></div></div></div>
   </div>
   <div class="col" id="center">
     <div id="editWrap">
@@ -890,6 +900,7 @@ function polyColor(p, tint) {
   const base = p.accent === 1 ? hex2rgb(ui.accent) : p.accent === 2 ? hex2rgb(ui.accent2) : hex2rgb(p.color);
   return rgb2css([base[0] * tint[0], base[1] * tint[1], base[2] * tint[2]]);
 }
+const bounds = pts => [Math.min(...pts.map(q => q[0])), Math.min(...pts.map(q => q[1])), Math.max(...pts.map(q => q[0])), Math.max(...pts.map(q => q[1]))];
 function centroid(pts) { let x = 0, y = 0; pts.forEach(p => { x += p[0]; y += p[1]; }); return [x / pts.length, y / pts.length]; }
 
 function validate(d) {
@@ -1275,13 +1286,50 @@ function renderTree() {
   { const hid = [...ui.hiddenParts].filter(k => k.startsWith(view + ":")).length; $("showAll").hidden = !hid; $("showAll").textContent = "Show all (" + hid + ")"; }
 }
 /* A section of the inspector: a collapsible card with a two-column grid in it. Which sections are open is remembered (by title) across the rebuilds. */
-const insOpen = {};
-function insSection(ins, title, closed) {
+const INS_KEY = "puppet_ins_open";
+const insOpen = (() => { try { return JSON.parse(localStorage.getItem(INS_KEY) || "{}") || {}; } catch (e) { return {}; } })();   // which inspector sections are open, remembered between visits
+function insSection(ins, title, closed, badge) {
   const d = document.createElement("details"); d.className = "isec"; d.open = insOpen[title] === undefined ? !closed : insOpen[title];
   const s = document.createElement("summary"); s.textContent = title; d.appendChild(s);
+  if (badge) { const b = document.createElement("span"); b.className = "badge"; b.textContent = badge; s.appendChild(b); }
   const g = document.createElement("div"); g.className = "ig"; d.appendChild(g);
-  d.addEventListener("toggle", () => { insOpen[title] = d.open; });
+  d.addEventListener("toggle", () => { insOpen[title] = d.open; try { localStorage.setItem(INS_KEY, JSON.stringify(insOpen)); } catch (e) {} });
   ins.appendChild(d); return g;
+}
+/* the bar at the top of the inspector: what is selected, where it sits, and the three things you do most (select its part, duplicate it, delete it) */
+function insBar(ins, o) {
+  const root = doc.views[ui.view], poly = isPoly(o), isRoot = o === root, rn = poly ? "" : rigNameOf(ui.view, o), parent = isRoot ? null : selectedParent();
+  const kind = poly ? (o.poly.img ? "picture" : "polygon") : isRoot ? "top part" : rn ? "rig pivot" : "pivot";
+  const trail = pathTo(root, o).reverse().slice(1).map(n => n.name || "node");
+  const bar = document.createElement("div"); bar.className = "insbar";
+  const nm = document.createElement("div"); nm.className = "insname";
+  const b = document.createElement("b"); b.textContent = (poly ? o.poly.name : isRoot ? sideLabel(ui.view) + " drawing" : o.name) || (poly ? "(unnamed " + kind + ")" : "node"); b.title = b.textContent; b.setAttribute("data-nopolish", "");
+  const sub = document.createElement("span"); sub.textContent = kind + " · " + sideLabel(ui.view).toLowerCase() + (trail.length ? " · in " + trail.join(" › ") : ""); sub.title = sub.textContent; sub.setAttribute("data-nopolish", "");
+  nm.append(b, sub);
+  const bt = document.createElement("div"); bt.className = "btns";
+  const up = btn("Parent", () => select({ obj: parent }), "", !parent); up.title = parent ? "Select the part this belongs to (" + (parent.name || "node") + ")" : "This is the top of the drawing";
+  const du = btn("Duplicate", () => (poly ? dup(false) : dupPivot(o, parent, false)), "", isRoot); du.title = isRoot ? "The top part of a drawing cannot be duplicated" : "Make a copy next to it";
+  const locked = !isRoot && !poly && (!!rn || containsRig(o));
+  const de = btn("Delete", deleteSelected, "danger", isRoot || locked); de.title = isRoot ? "The top part of a drawing cannot be deleted" : locked ? "A rig part (or one holding rig parts) is moved by the game's animation, so it cannot be deleted" : "Delete this " + kind + " (Ctrl+Z brings it back)";
+  bt.append(up, du, de); bar.append(nm, bt); ins.appendChild(bar);
+}
+/* a value shown, not edited */
+function readout(label, text, wide) { const v = document.createElement("div"); v.className = "ro"; v.textContent = text; return field(label, v, wide); }
+/* nothing selected: the drawing in numbers, and any polygon that crosses itself */
+function insGlance(ins) {
+  const root = doc.views[ui.view]; let pivots = -1, polys = 0, pics = 0, outlined = 0; const bad = [];
+  walk(root, n => { if (isPoly(n)) { if (n.poly.img) pics++; else { polys++; if (n.poly.outline) outlined++; if (crossings(n.poly.pts).length) bad.push(n); } } else pivots++; });
+  const g = insSection(ins, "This drawing at a glance");
+  g.parentNode.classList.add("glance");
+  const t = document.createElement("p"); t.className = "hint"; t.textContent = `${sideLabel(ui.view)} drawing: ${pivots} pivot${pivots === 1 ? "" : "s"} · ${polys} polygon${polys === 1 ? "" : "s"} (${outlined} outlined) · ${pics} picture${pics === 1 ? "" : "s"}.`; g.appendChild(t);
+  const ok = document.createElement("p"); ok.className = "hint"; g.appendChild(ok);
+  if (!bad.length) ok.textContent = "No polygon crosses itself.";
+  else {
+    ok.classList.add("bad"); ok.textContent = `⚠ ${bad.length} polygon${bad.length === 1 ? " crosses" : "s cross"} itself (the game cannot draw ${bad.length === 1 ? "it" : "them"}):`;
+    const r = document.createElement("div"); r.className = "row w2"; bad.slice(0, 6).forEach(n => { const bb = btn(n.poly.name || "polygon", () => select({ obj: n })); bb.setAttribute("data-nopolish", ""); r.appendChild(bb); });
+    if (bad.length > 6) { const m = document.createElement("span"); m.className = "hint"; m.textContent = `and ${bad.length - 6} more`; r.appendChild(m); }
+    g.appendChild(r);
+  }
 }
 let colourClip = null;   // the colour last copied with the inspector's Copy button
 function field(label, inner, wide) { const d = document.createElement("div"); d.className = "f" + (wide ? " w2" : ""); const l = document.createElement("label"); l.textContent = label; d.appendChild(l); d.appendChild(inner); return d; }
@@ -1299,20 +1347,21 @@ function renderInspector() {
 }
 function renderInspectorBody() {
   const ins = $("inspector"); ins.innerHTML = ""; const s = ui.sel;
-  if (!s) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "Pick a part in the list or click one on the canvas. Pivots (the rig:… parts) carry the animation: move a pivot and everything under it moves with it."; ins.appendChild(p); return; }
+  if (!s) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "Pick a part in the list or click one on the canvas. Pivots (the rig:… parts) carry the animation: move a pivot and everything under it moves with it."; ins.appendChild(p); insGlance(ins); return; }
   const o = s.obj, view = ui.view;
   if (isImg(o)) { imageInspector(ins, o); return; }
   if (isPoly(o)) {
     const p = o.poly, parent = selectedParent();
     const xs = crossings(p.pts);
+    insBar(ins, o);
     if (xs.length) { const wn = document.createElement("p"); wn.className = "hint"; wn.style.color = "var(--bad)"; wn.textContent = `⚠ This polygon's edges cross themselves in ${xs.length} place${xs.length > 1 ? "s" : ""} (red rings on the canvas). Godot can't draw it, so it will vanish in the game. Drag the points so the outline never crosses itself, or split it into two polygons.`; ins.appendChild(wn); }
     // Part: what it is called, which part it belongs to, and where it sits in the draw order
-    let g = insSection(ins, "Part");
+    let g = insSection(ins, "Part", false, "layer " + (parent.kids.indexOf(o) + 1) + " of " + parent.kids.length);
     g.appendChild(field("Name", nameField(o), true));
     g.appendChild(field("Part", partPicker(o, parent), true));
     layerControls(g, o);
     // Look: colour, role and outline
-    g = insSection(ins, "Look");
+    g = insSection(ins, "Look", false, p.accent ? "accent" : p.outline ? "outlined" : "");
     const col = document.createElement("input"); col.type = "color"; col.value = "#" + p.color; col.disabled = !!p.accent; col.addEventListener("input", () => change(() => { p.color = col.value.slice(1); }, "color")); const cw = document.createElement("div"); cw.className = "minibtns"; cw.appendChild(col);
     const mk = (t, tip, fn) => { const b = document.createElement("button"); b.type = "button"; b.textContent = t; b.title = tip; b.addEventListener("click", fn); cw.appendChild(b); return b; };
     mk("Pick", "Eyedropper: then click any polygon on the canvas to take its colour", () => { ui.pickColour = !ui.pickColour; edit.classList.toggle("picking", ui.pickColour); });
@@ -1325,14 +1374,18 @@ function renderInspectorBody() {
     lineControls(g, { label: "Outline", on: !!p.outline, setOn: v => change(() => { p.outline = v; delete p.outline_was; }),   // a deliberate edit wins over the remembered setting
       thickness: outW(p), setThickness: v => change(() => { p.ow = Math.max(0, v); }, "ow"), colour: outC(p), setColour: v => change(() => { p.oc = v; }, "oc") });
     if (parent.ow > 0) { const hh = document.createElement("p"); hh.className = "hint"; hh.textContent = `This part has a whole-section outline (${outW(parent)}); turn Outline off here so the polygon does not also draw its own.`; g.appendChild(hh); }
+    const bb = bounds(p.pts);
+    g = insSection(ins, "Shape", false, p.pts.length + " points");
+    g.appendChild(readout("Points", String(p.pts.length)));
+    g.appendChild(readout("Size", round2(bb[2] - bb[0]) + " × " + round2(bb[3] - bb[1])));
+    g.appendChild(readout("Centre", round2(centroid(p.pts)[0]) + ", " + round2(centroid(p.pts)[1]), true));
+    const sh = document.createElement("p"); sh.className = "hint"; sh.textContent = "Drag a cyan point to move it; click an orange square to add a point; Alt-click a point to remove it."; g.appendChild(sh);
     g = insSection(ins, "Transform"); transformControls(g, o);
-    g = insSection(ins, "Clipboard"); g.appendChild(clipboardControls(o, parent));
-    deleteBar(ins, "Delete polygon");
-    const h = document.createElement("p"); h.className = "hint"; h.textContent = `${p.pts.length} points. Drag a cyan point to move it; click an orange square to add a point; Alt-click a point to remove it.`;
-    ins.appendChild(h);
+    g = insSection(ins, "Clipboard", true); g.appendChild(clipboardControls(o, parent));
   } else {
     const rn = rigNameOf(view, o), isRoot = o === doc.views[view];
-    let g = insSection(ins, "Part");
+    insBar(ins, o);
+    let g = insSection(ins, "Part", false, isRoot ? "" : "layer " + (selectedParent().kids.indexOf(o) + 1) + " of " + selectedParent().kids.length);
     g.appendChild(field("Name", nameField(o), true));
     if (rn) { const p = document.createElement("p"); p.className = "hint"; p.textContent = `Rig part "${rn}": the animation moves this pivot (rest position below) so it can't be deleted or moved into another part.`; g.appendChild(p); }
     if (!isRoot) g.appendChild(field("Part", partPicker(o, selectedParent()), true));
@@ -1345,17 +1398,22 @@ function renderInspectorBody() {
     }
     g.appendChild(field("Scale", xy(numInput(o.scale[0], v => change(() => { o.scale = [v, o.scale[1]]; }, "sx"), 0.05), numInput(o.scale[1], v => change(() => { o.scale = [o.scale[0], v]; }, "sy"), 0.05)), true));
     g.appendChild(field("Rotation °", numInput(o.rot * 180 / Math.PI, v => change(() => { o.rot = v * Math.PI / 180; }, "rot"), 1)));
-    const tint = document.createElement("input"); tint.type = "color"; tint.value = "#" + (o.tint || "ffffff"); tint.addEventListener("input", () => change(() => { o.tint = tint.value.slice(1); }, "tint")); g.appendChild(field("Tint", tint));
+    const tint = document.createElement("input"); tint.type = "color"; tint.value = "#" + (o.tint || "ffffff"); tint.addEventListener("input", () => change(() => { o.tint = tint.value.slice(1); }, "tint"));
+    const tw = document.createElement("div"); tw.className = "pair"; const untinted = !o.tint || o.tint === "ffffff";
+    tw.append(tint, btn("None", () => change(() => { o.tint = "ffffff"; }), "", untinted)); tw.title = "A tint multiplies the colour of everything inside this pivot. White = no tint.";
+    g.appendChild(field("Tint", tw));
+    const plain = o.scale[0] === 1 && o.scale[1] === 1 && !o.rot;
+    const rb0 = document.createElement("div"); rb0.className = "btns"; rb0.appendChild(btn("Reset scale and rotation", () => change(() => { o.scale = [1, 1]; o.rot = 0; }), "", plain));
+    g.appendChild(field("Reset", rb0, true));
     const h = document.createElement("p"); h.className = "hint"; h.textContent = "Rotation and scale here are the REST values; running and aiming move the rig parts on top of them."; g.appendChild(h);
-    if (!isRoot && !rn) { g = insSection(ins, "Motion", !o.mv); motionControls(g, o); }
-    g = insSection(ins, "Section line"); sectionOutlineControls(g, o);
-    g = insSection(ins, "Add inside");
+    if (!isRoot && !rn) { g = insSection(ins, "Motion", !o.mv, o.mv ? Object.keys(o.mv).length + " set" : ""); motionControls(g, o); }
+    g = insSection(ins, "Section line", false, o.ow > 0 ? "on" : "off"); sectionOutlineControls(g, o);
+    g = insSection(ins, "Add inside", false, o.kids.length ? o.kids.length + " inside" : "empty");
     const b = document.createElement("div"); b.className = "btns q";
     b.append(btn("Add rectangle", () => addPoly(o, "rect")), btn("Add oval", () => addPoly(o, "oval")), btn("Add triangle", () => addPoly(o, "tri")), btn("Add hexagon", () => addPoly(o, "hex")), btn("Add picture…", () => pickImageFor(o)), btn("Add pivot", () => addNode(o)));
     g.appendChild(b);
-    g = insSection(ins, "Clipboard"); g.appendChild(clipboardControls(o, isRoot ? null : selectedParent()));
+    g = insSection(ins, "Clipboard", true); g.appendChild(clipboardControls(o, isRoot ? null : selectedParent()));
     g = insSection(ins, "Transform contents", true); transformControls(g, o);
-    if (!isRoot) deleteBar(ins, "Delete part", !!rn || containsRig(o));
   }
 }
 /* the Shape section of a polygon or a picture: flip, grow / shrink and turn it about its own centre, by a step or by a number */
@@ -1511,6 +1569,7 @@ function setImgSize(p, w, h) {   // keep the centre and the turn; change the len
 }
 function imageInspector(ins, o) {
   const p = o.poly, parent = selectedParent();
+  insBar(ins, o);
   let g = insSection(ins, "Picture");
   const url = imgUrl(p.img.file), th = document.createElement("div"); th.className = "w2"; th.style.cssText = "height:96px;border:1px solid var(--line,#333);border-radius:6px;display:grid;place-items:center;background:#12142a;overflow:hidden;padding:3px;box-sizing:border-box";
   if (url) { const im = document.createElement("img"); im.src = url; im.style.cssText = "max-width:100%;max-height:88px;object-fit:contain"; th.appendChild(im); } else th.textContent = IMG.files && !IMG.files[p.img.file] ? "⚠ not in the library" : "loading…";
@@ -1520,11 +1579,11 @@ function imageInspector(ins, o) {
   b1.append(btn("Replace picture…", async () => { const f = await imgPicker({ pick: true, title: "Pick another picture" }); if (!f) return; const files = await imgList(), m = files[f] || { w: p.img.w, h: p.img.h }; change(() => { p.img = { file: f, w: m.w, h: m.h }; setImgSize(p, imgSizeOf(p)[0], imgSizeOf(p)[0] * m.h / m.w); }); }),
     btn("Cut / edit the picture…", async () => { const r = await imgPrep({ name: p.img.file }); if (r) { IMG.onChange(); } }));
   g.appendChild(b1);
-  g = insSection(ins, "Part");
+  g = insSection(ins, "Part", false, "layer " + (parent.kids.indexOf(o) + 1) + " of " + parent.kids.length);
   g.appendChild(field("Name", nameField(o), true));
   g.appendChild(field("Part", partPicker(o, parent), true));
   layerControls(g, o);
-  g = insSection(ins, "Frames and states");
+  g = insSection(ins, "Frames and states", false, imgIsSheet(p.img) ? imgFrameCount(p.img) + " frames" : (p.when && p.when.length ? "conditions" : ""));
   const b2f = document.createElement("div"); b2f.className = "btns";
   b2f.append(btn("Frames…", async () => {
     const r = await imgFramesDialog(p.img, { run: true }); if (!r) return;
@@ -1548,8 +1607,7 @@ function imageInspector(ins, o) {
   const b0 = document.createElement("div"); b0.className = "btns"; b0.append(btn("Match the picture's shape", () => change(() => { const [cw] = imgSizeOf(p); setImgSize(p, cw, cw * p.img.h / p.img.w); })));
   g.appendChild(b0);
   transformControls(g, o);
-  g = insSection(ins, "Clipboard"); g.appendChild(clipboardControls(o, parent));
-  deleteBar(ins, "Delete picture");
+  g = insSection(ins, "Clipboard", true); g.appendChild(clipboardControls(o, parent));
   const h2 = document.createElement("p"); h2.className = "hint"; h2.textContent = "A picture moves, turns and mirrors with its part like any shape (drag it on the canvas, arrows nudge it). Its transparency is kept. Editing the picture changes it everywhere it is used.";
   ins.appendChild(h2);
 }
@@ -1632,10 +1690,6 @@ function lineControls(g, c) {
   if (c.hideWhenOff && !c.on) return;
   g.appendChild(field("Thickness", numInput(c.thickness, v => c.setThickness(v), 0.1)));
   const col = document.createElement("input"); col.type = "color"; col.value = "#" + c.colour; col.addEventListener("input", () => c.setColour(col.value.slice(1))); g.appendChild(field("Line colour", col));
-}
-/* The delete button under the sections (disabled with a reason when it cannot be used). */
-function deleteBar(ins, label, disabled) {
-  const b = document.createElement("div"); b.className = "ig-danger"; b.append(btn(label, deleteSelected, "danger", !!disabled)); ins.appendChild(b);
 }
 /* ---------- naming convention: every part / pivot / polygon name starts with its TOP-LEVEL part (armL > "armL shoulder pivot" > "armL shoulder shade") ---------- */
 const KNOWN_TOPS = ["armL", "armR", "armNear", "armFar", "legL", "legR", "legNear", "legFar", "tailL", "tailR", "tail", "torso", "head", "coat"];
@@ -1744,7 +1798,7 @@ function clipboardControls(o, parent) {
   opts.append(ms, chk("keep screen position", "keep", same ? "Land where it was on screen (same puppet and view only)" : "Only available inside the same puppet and view", !!same), chk("rename to the new part", "rename", "Re-prefix the pasted names with the destination's top-level part"), chk("copy tint + section line", "style", "With Replace contents: also copy the source pivot's tint and section line"));
   wrap.appendChild(opts);
   const r4 = document.createElement("div"); r4.className = "btns";
-  r4.append(btn("Duplicate", () => (poly ? dup(false) : dupPivot(o, parent, false)), "", isRoot), btn("Mirror copy", () => (poly ? dup(true) : dupPivot(o, parent, true)), "", isRoot)); wrap.appendChild(r4);
+  r4.append(btn("Mirror copy", () => (poly ? dup(true) : dupPivot(o, parent, true)), "", isRoot)); wrap.appendChild(r4);
   const h = document.createElement("p"); h.className = "hint"; h.textContent = "Ctrl+C / Ctrl+X / Ctrl+V work too (not while typing). The clipboard survives switching views and puppets, so this one tool also moves things between puppets. Cut can be undone with Ctrl+Z."; wrap.appendChild(h);
   return wrap;
 }
@@ -2065,6 +2119,13 @@ async function boot() {
 /* ---------- toolbar wiring ---------- */
 $("viewSeg").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; if (!doc.views[b.dataset.view]) { setStatus("No Right drawing yet: press Left → Right", "warn"); return; } ui.view = b.dataset.view; ui.sel = null; [...$("viewSeg").children].forEach(x => x.classList.toggle("on", x === b)); renderTree(); renderInspector(); renderEdit(); });
 $("treeFilter").addEventListener("input", () => { ui.treeFilter = $("treeFilter").value; renderTree(); });
+const INS_TITLES = ["This drawing at a glance", "Picture", "Part", "Look", "Shape", "Transform", "Rest pose", "Motion", "Section line", "Add inside", "Frames and states", "Size and transform", "Clipboard", "Transform contents"];
+const insAll = open => {   // every section, including the ones not showing for this selection (they open or close the same way when you select something else)
+  INS_TITLES.forEach(t => { insOpen[t] = open; }); try { localStorage.setItem(INS_KEY, JSON.stringify(insOpen)); } catch (e) {}
+  document.querySelectorAll("#inspector details.isec").forEach(d => { d.open = open; });
+};
+$("insExpand").addEventListener("click", () => insAll(true));
+$("insCollapse").addEventListener("click", () => insAll(false));
 $("treeFilter").addEventListener("keydown", e => { if (e.key === "Escape") { $("treeFilter").value = ""; ui.treeFilter = ""; renderTree(); } });
 $("expandAll").addEventListener("click", () => setAllCollapsed(false)); $("collapseAll").addEventListener("click", () => setAllCollapsed(true));
 $("mirrorToRightBtn").addEventListener("click", () => askMirror("side", "right")); $("mirrorToLeftBtn").addEventListener("click", () => askMirror("right", "side")); $("linkSel").addEventListener("change", e => setLink(e.target.value));
