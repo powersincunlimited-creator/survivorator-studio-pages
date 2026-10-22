@@ -157,14 +157,18 @@
   .rst{background:none; border:0; color:var(--cyan); cursor:pointer; padding:0 4px; font-size:12px; margin-left:2px}
   .rst[hidden]{display:none}
   .part-num{font-family:var(--font-mono); font-size:10px; font-weight:600; color:var(--text-faint)}
-  .canvas-toolbar > .tg:last-child{margin-left:auto}
-  @media (max-width: 700px){ .hg{padding-right:8px} .canvas-toolbar > .tg:last-child{margin-left:0} }
+  .ct-tools > .tg:last-child{margin-left:auto}
+  @media (max-width: 700px){ .hg{padding-right:8px} .ct-tools > .tg:last-child{margin-left:0} }
   main{flex:1; display:flex; min-width:0; min-height:0}
   .canvas-col{flex:1; display:flex; flex-direction:column; min-width:0; border-right:1px solid var(--hair)}
   .canvas-toolbar{
-    display:flex; align-items:center; gap:10px; padding:10px 16px; border-bottom:1px solid var(--hair-soft);
-    flex:none; flex-wrap:wrap;
+    display:flex; flex-direction:column; align-items:stretch; gap:8px; padding:10px 16px; border-bottom:1px solid var(--hair-soft);
+    flex:none;
   }
+  .ct-info, .ct-tools{display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-width:0}
+  .coord{position:absolute; right:10px; bottom:8px; font-family:var(--font-mono); font-size:11px; color:var(--text-dim); pointer-events:none; background:#05050bcc; padding:2px 6px; border-radius:3px}
+  .grid-line{stroke:var(--text-faint); stroke-width:1; opacity:.18; vector-effect:non-scaling-stroke; pointer-events:none}
+  .grid-line.major{opacity:.34}
   .canvas-toolbar h2{font-family:var(--font-display); font-weight:600; font-size:17px; margin:0; color:var(--text)}
   .used-by{font-family:var(--font-mono); font-size:11px; color:var(--text-faint); flex:1; min-width:120px}
   .used-by b{color:var(--text-dim); font-weight:500}
@@ -408,19 +412,25 @@
     <main>
       <div class="canvas-col">
         <div class="canvas-toolbar">
-          <h2 id="shapeTitle">&mdash;</h2>
-          <div class="used-by" id="usedBy"></div>
-          <div class="shape-meta" id="shapeMeta"></div>
-          <span class="x-warn" id="crossWarn" hidden title="A polygon whose edges cross itself cannot be drawn by the game (the part vanishes). Red rings mark the crossings."></span>
-          <span class="presence-badge" id="presenceBadge" hidden></span>
-          <div class="tg" role="group" aria-label="Turn the whole drawing" title="Turn the whole drawing about its origin"><button class="btn sm" id="btnShapeFlipH" title="Mirror the whole drawing left-right (about the grip / origin)">&#8596; Flip shape</button><button class="btn sm" id="btnShapeFlipV" title="Mirror the whole drawing top-bottom (about the grip / origin)">&#8597; Flip shape</button><button class="btn sm" id="btnShapeRotL" title="Rotate the whole drawing 15 degrees anticlockwise about the origin">&#8634; 15&deg;</button><button class="btn sm" id="btnShapeRotR" title="Rotate the whole drawing 15 degrees clockwise about the origin">&#8635; 15&deg;</button></div>
-          <div class="tg" role="group" aria-label="View"><button class="btn sm on" id="btnOutlines" title="Show or hide every part outline in this editor, to see the shapes underneath. View only: the outlines are not changed and the game still draws them.">Outlines</button><button class="btn sm" id="btnPreview" title="Play every part's motion preset">&#9654; Motion</button></div>
-          <div class="tg" role="group" aria-label="Playback speed" id="pbSpeed" title="How fast Motion / Play runs: slow it down to study a motion, or pause it"><button class="btn sm" data-s="0" title="Pause the preview (the pose holds)">Pause</button><button class="btn sm" data-s="0.25">&frac14;&times;</button><button class="btn sm" data-s="0.5">&frac12;&times;</button><button class="btn sm on" data-s="1">1&times;</button></div>
-          <div class="tg" role="group" aria-label="Ground"><select id="selGround" title="The colour behind the drawing, in this editor only: a light ground shows up the outlines, a dark one the glow"><option value="dark">Dark ground</option><option value="mid">Mid ground</option><option value="light">Light ground</option><option value="check">Checker</option></select></div>
-          <div class="tg" role="group" aria-label="Zoom"><button class="btn" id="btnZoomOut">&minus;</button><button class="btn" id="btnZoomReset">Fit</button><button class="btn" id="btnZoomIn">&plus;</button></div>
+          <div class="ct-info">
+            <h2 id="shapeTitle">&mdash;</h2>
+            <div class="used-by" id="usedBy"></div>
+            <div class="shape-meta" id="shapeMeta"></div>
+            <span class="x-warn" id="crossWarn" hidden title="A polygon whose edges cross itself cannot be drawn by the game (the part vanishes). Red rings mark the crossings."></span>
+            <span class="presence-badge" id="presenceBadge" hidden></span>
+          </div>
+          <div class="ct-tools">
+            <div class="tg" role="group" aria-label="Turn the whole drawing" title="Turn the whole drawing about its origin"><button class="btn sm" id="btnShapeFlipH" title="Mirror the whole drawing left-right (about the grip / origin)">&#8596; Flip shape</button><button class="btn sm" id="btnShapeFlipV" title="Mirror the whole drawing top-bottom (about the grip / origin)">&#8597; Flip shape</button><button class="btn sm" id="btnShapeRotL" title="Rotate the whole drawing 15 degrees anticlockwise about the origin">&#8634; 15&deg;</button><button class="btn sm" id="btnShapeRotR" title="Rotate the whole drawing 15 degrees clockwise about the origin">&#8635; 15&deg;</button></div>
+            <div class="tg" role="group" aria-label="Snap" title="Where a point or part lands when you drag it (hold Ctrl to drag without snapping)"><select id="snapSel"><option value="0">Snap: off</option><option value="0.1">Snap: 0.1</option><option value="0.25">Snap: 0.25</option><option value="0.5">Snap: 0.5</option><option value="1">Snap: 1</option><option value="2">Snap: 2</option><option value="5">Snap: 5</option></select></div>
+            <div class="tg" role="group" aria-label="Show on the canvas" title="What the canvas shows (view only: the shape itself does not change)"><button class="btn sm" id="btnGrid" title="A grid in game units that follows the zoom; the readout in the corner says how far apart its lines are">Grid</button><button class="btn sm on" id="btnOrigin" title="The two lines through the origin (the grip)">Origin</button><button class="btn sm on" id="btnOutlines" title="Show or hide every part outline in this editor, to see the shapes underneath. View only: the outlines are not changed and the game still draws them.">Outlines</button></div>
+            <div class="tg" role="group" aria-label="Preview" id="pbSpeed" title="Play every part's motion preset, and how fast it runs: slow it down to study a motion, or pause it"><button class="btn sm" id="btnPreview" title="Play every part's motion preset">&#9654; Motion</button><button class="btn sm" data-s="0" title="Pause the preview (the pose holds)">Pause</button><button class="btn sm" data-s="0.25">&frac14;&times;</button><button class="btn sm" data-s="0.5">&frac12;&times;</button><button class="btn sm on" data-s="1">1&times;</button></div>
+            <div class="tg" role="group" aria-label="Ground"><select id="selGround" title="The colour behind the drawing, in this editor only: a light ground shows up the outlines, a dark one the glow"><option value="dark">Dark ground</option><option value="mid">Mid ground</option><option value="light">Light ground</option><option value="check">Checker</option></select></div>
+            <div class="tg" role="group" aria-label="Zoom"><button class="btn" id="btnZoomOut" title="Zoom out (or scroll the wheel)">&minus;</button><button class="btn" id="btnZoomReset" title="Frame the whole shape">Fit</button><button class="btn" id="btnZoomIn" title="Zoom in (or scroll the wheel, or pinch with two fingers)">&plus;</button><button class="btn" id="btnZoomOne" title="Actual size: one game unit is one screen pixel">1:1</button></div>
+          </div>
         </div>
         <div class="canvas-wrap" id="canvasWrap">
           <svg class="stage" id="stage"></svg>
+          <div class="coord" id="coord"></div>
           <div class="empty-hint" id="proceduralHint" hidden>This shot draws procedurally each frame (FireballFX) &mdash; there are no fixed vertices to edit here.</div>
         </div>
       </div>
@@ -2142,6 +2152,17 @@ let dragging = null;        // vertex drag: {pi, vi, pointerId}
 let partDragging = null;    // whole-part drag: {pi, pointerId, startClientX, startClientY, startPos}
 let panDrag = null;         // canvas pan: {startClientX, startClientY, startView}
 let view = {scale:1, tx:0, ty:0};
+const WSE_VIEW_KEY = 'wse_canvas_view';
+let showGrid = false, showOrigin = true, snapStep = 0;   // view only; remembered between visits
+try{ const sv = JSON.parse(localStorage.getItem(WSE_VIEW_KEY) || 'null'); if(sv){ showGrid = !!sv.grid; showOrigin = sv.origin !== false; snapStep = +sv.snap || 0; } }catch(e){}
+function saveCanvasView(){ try{ localStorage.setItem(WSE_VIEW_KEY, JSON.stringify({grid: showGrid, origin: showOrigin, snap: snapStep})); }catch(e){} }
+const snapTo = v => (snapStep > 0 ? Math.round(v / snapStep) * snapStep : v);
+function niceGridStep(){ const t = view.w / 16, e = Math.pow(10, Math.floor(Math.log10(t))), m = t / e; return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * e; }
+function pxPerUnit(){ return stageContentRect().width / view.w; }
+function updateCoord(pt){
+  const c = document.getElementById('coord'); if(!c) return;
+  c.textContent = (pt ? 'x ' + pt.x.toFixed(1) + '  y ' + pt.y.toFixed(1) + '   ' : '') + 'zoom ' + Math.round(pxPerUnit() * 100) + '%' + (showGrid ? '   grid ' + +niceGridStep().toPrecision(2) : '');
+}
 let shapeHandleR = 0.5;     // fixed WORLD-space vertex radius for the current shape (see fitView) —
                              // grows/shrinks on screen as you zoom, since it's a plain viewBox size
                              // rather than one recomputed from the live (zoom-dependent) view.w
@@ -2522,7 +2543,7 @@ document.getElementById('btnShapeFlipH').addEventListener('click', ()=>{ if(curr
 document.getElementById('btnShapeFlipV').addEventListener('click', ()=>{ if(current) flipShape(false); });
 document.getElementById('btnShapeRotL').addEventListener('click', ()=>{ if(current) rotateShapeDeg(-15); });
 document.getElementById('btnShapeRotR').addEventListener('click', ()=>{ if(current) rotateShapeDeg(15); });
-document.getElementById('pbSpeed').addEventListener('click', e => { const b = e.target.closest('button'); if(!b) return; pbSpeedW = +b.dataset.s; [...document.getElementById('pbSpeed').children].forEach(x => x.classList.toggle('on', x === b)); });
+document.getElementById('pbSpeed').addEventListener('click', e => { const b = e.target.closest('button[data-s]'); if(!b) return; pbSpeedW = +b.dataset.s; [...document.getElementById('pbSpeed').querySelectorAll('button[data-s]')].forEach(x => x.classList.toggle('on', x === b)); });
 document.getElementById('selGround').addEventListener('change', e => { document.getElementById('canvasWrap').dataset.ground = e.target.value; });
 document.getElementById('btnPreview').addEventListener('click', ()=>{ if(previewOn) stopPreview(); else if(current) startPreview(); });
 function shapeBounds(){
@@ -2566,6 +2587,11 @@ stage.addEventListener('wheel', ev => {
 document.getElementById('btnZoomIn').addEventListener('click', ()=>zoom(1.25));
 document.getElementById('btnZoomOut').addEventListener('click', ()=>zoom(0.8));
 document.getElementById('btnZoomReset').addEventListener('click', ()=>{ fitView(); renderStage(); });
+document.getElementById('btnZoomOne').addEventListener('click', ()=>{ const k = pxPerUnit(); if(k > 0) zoom(1 / k); });
+const toggleView = (id, get, set) => { const b = document.getElementById(id); b.classList.toggle('on', get()); b.addEventListener('click', () => { set(!get()); b.classList.toggle('on', get()); saveCanvasView(); renderStage(); }); };
+toggleView('btnGrid', () => showGrid, v => { showGrid = v; });
+toggleView('btnOrigin', () => showOrigin, v => { showOrigin = v; });
+{ const ss = document.getElementById('snapSel'); ss.value = String(snapStep); if(ss.value !== String(snapStep)){ snapStep = 0; ss.value = '0'; } ss.addEventListener('change', () => { snapStep = +ss.value || 0; saveCanvasView(); }); }
 
 /* Crossing edges: Godot cannot triangulate a polygon whose outline crosses itself, so the game skips it (the part vanishes). Points where the edges cross, [] when fine. */
 function crossingsOf(pts){
@@ -2593,8 +2619,16 @@ function renderStage(){
   if(!current) return;
   stage.setAttribute('viewBox', view.minX+' '+view.minY+' '+view.w+' '+view.h);
   tintDefs = el('defs', {}); tintIds = new Set(); stage.appendChild(tintDefs);
-  stage.appendChild(el('line', {class:'origin-mark', x1:view.minX, y1:0, x2:view.minX+view.w, y2:0}));
-  stage.appendChild(el('line', {class:'origin-mark', x1:0, y1:view.minY, x2:0, y2:view.minY+view.h}));
+  if(showGrid){
+    const g = niceGridStep(), vx1 = view.minX + view.w, vy1 = view.minY + view.h;
+    for(let x = Math.ceil(view.minX / g) * g, n = 0; x <= vx1 && n < 120; x += g, n++) stage.appendChild(el('line', {class:'grid-line' + (Math.abs(Math.round(x / g)) % 5 === 0 ? ' major' : ''), x1:x, y1:view.minY, x2:x, y2:vy1}));
+    for(let y = Math.ceil(view.minY / g) * g, n = 0; y <= vy1 && n < 120; y += g, n++) stage.appendChild(el('line', {class:'grid-line' + (Math.abs(Math.round(y / g)) % 5 === 0 ? ' major' : ''), x1:view.minX, y1:y, x2:vx1, y2:y}));
+  }
+  if(showOrigin){
+    stage.appendChild(el('line', {class:'origin-mark', x1:view.minX, y1:0, x2:view.minX+view.w, y2:0}));
+    stage.appendChild(el('line', {class:'origin-mark', x1:0, y1:view.minY, x2:0, y2:view.minY+view.h}));
+  }
+  updateCoord(null);
 
   const isFx = current.ns === 'effects';
   const tt = !isFx ? 0 : (previewLoopsEvery > 0 ? previewT % previewLoopsEvery : previewT);
@@ -2786,9 +2820,12 @@ stage.addEventListener('pointerdown', ev => {
   stage.classList.add('panning');
   stage.setPointerCapture(ev.pointerId);
 });
+stage.addEventListener('pointermove', ev => { if(stage.getBoundingClientRect().width > 10) updateCoord(clientToStage(ev.clientX, ev.clientY)); });
+stage.addEventListener('pointerleave', () => updateCoord(null));
 stage.addEventListener('pointermove', ev => {
   if(dragging){
     const pt = clientToStage(ev.clientX, ev.clientY);
+    if(!ev.ctrlKey){ pt.x = snapTo(pt.x); pt.y = snapTo(pt.y); }
     const part = parts[dragging.pi];
     const cos = Math.cos(part.rot||0), sin = Math.sin(part.rot||0);
     const sx = (part.scale && part.scale[0]) || 1, sy = (part.scale && part.scale[1]) || 1;
@@ -2805,7 +2842,7 @@ stage.addEventListener('pointermove', ev => {
     const dx = (ev.clientX - partDragging.startClientX) / cr.width * view.w;
     const dy = (ev.clientY - partDragging.startClientY) / cr.height * view.h;
     const part = parts[partDragging.pi];
-    part.pos = [round3(partDragging.startPos[0] + dx), round3(partDragging.startPos[1] + dy)];
+    part.pos = ev.ctrlKey ? [round3(partDragging.startPos[0] + dx), round3(partDragging.startPos[1] + dy)] : [round3(snapTo(partDragging.startPos[0] + dx)), round3(snapTo(partDragging.startPos[1] + dy))];
     renderStage();
     scheduleSave();
     return;
