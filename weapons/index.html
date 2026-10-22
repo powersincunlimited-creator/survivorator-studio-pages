@@ -149,6 +149,7 @@
   .menu-pop hr{margin:2px 0; border:0; border-top:1px solid var(--hair)}
   .menu > .btn[aria-expanded="true"]{border-color:var(--cyan); color:var(--cyan)}
   .parts-head-add .tg .btn{padding:4px 8px}
+  .part-num{font-family:var(--font-mono); font-size:10px; font-weight:600; color:var(--text-faint)}
   .canvas-toolbar > .tg:last-child{margin-left:auto}
   @media (max-width: 700px){ .hg{padding-right:8px} .canvas-toolbar > .tg:last-child{margin-left:0} }
   main{flex:1; display:flex; min-width:0; min-height:0}
@@ -2953,6 +2954,7 @@ function wireFxBlock(row, part){
 }
 function renderParts(){
   partsList.innerHTML = '';
+  { const h3 = document.querySelector('.parts-head h3'); if(h3) h3.textContent = 'Parts (' + parts.length + ')'; }
   { const sa = document.getElementById('btnShowAll'); if(sa) sa.hidden = !parts.some(pt => pt._hidden); }
   parts.forEach((part, pi) => {
     const row = document.createElement('div');
@@ -2989,6 +2991,8 @@ function renderParts(){
         + wsF('Rotation °', `<input type="number" step="1" data-role="rotdeg" value="${Math.round((part.rot||0)*57.29578*10)/10}" title="This part's own rotation in degrees (about its origin)">`)
         + wsF('Flip', `<div class="btns"><button class="btn" data-role="fliph" title="Mirror this part left-right about its centre">&#8596;</button><button class="btn" data-role="flipv" title="Mirror this part top-bottom about its centre">&#8597;</button></div>`)
         + wsF('Turn about its centre', `<div class="btns"><button class="btn" data-role="rotl90" title="Rotate this part 90 degrees anticlockwise about its centre">&#8634;90</button><button class="btn" data-role="rotl15" title="15 degrees anticlockwise">&#8634;15</button><button class="btn" data-role="rotr15" title="15 degrees clockwise">&#8635;15</button><button class="btn" data-role="rotr90" title="Rotate this part 90 degrees clockwise about its centre">&#8635;90</button></div>`, true));
+      // Layer: where the part sits in the drawing order (the drag handle does the same)
+      body += wsSec('Layer', `<div class="btns q w2" style="grid-column:1 / -1"><button class="btn" data-role="laytoback" ${pi === 0 ? 'disabled' : ''} title="Draw this part first, behind all the others">To back</button><button class="btn" data-role="layback" ${pi === 0 ? 'disabled' : ''} title="One layer further back">Back one</button><button class="btn" data-role="layfwd" ${pi === parts.length - 1 ? 'disabled' : ''} title="One layer further forward">Forward one</button><button class="btn" data-role="laytofront" ${pi === parts.length - 1 ? 'disabled' : ''} title="Draw this part last, in front of all the others">To front</button></div><div class="hint" style="grid-column:1 / -1">Layer ${pi + 1} of ${parts.length} (1 = at the back).</div>`, true);
       // Motion: a looping motion for the part
       const hasAnim = part.anim && part.anim.kind;
       body += wsSec('Motion', wsF('Motion', `<select data-role="animkind" title="A looping motion for this part. Use Motion in the toolbar to preview it."><option value="">none</option>${ANIM_KINDS.map(k => `<option value="${k}" ${part.anim && part.anim.kind===k ? 'selected' : ''}>${k}</option>`).join('')}</select>`)
@@ -3001,7 +3005,7 @@ function renderParts(){
       <div class="part-row-top">
         <span class="part-drag-handle" data-role="drag" title="Drag to reorder (front/back)">&#8942;&#8942;</span>
         <div class="swatch"><input type="color" value="${hex}" data-role="hex"></div>
-        <div class="part-type" title="${part.img ? part.img.file : part.type}">${part.img ? '\u{1F5BC} ' + part.img.file + (imgIsSheet(part.img) ? ' · ' + imgFrameCount(part.img) + ' frames' : '') : part.type + ' · ' + part.points.length + 'pt'}${part.type==='polygon' && !part.img && crossingsOf(part.points).length ? ' <span style="color:#ff3b5c" title="This polygon crosses itself: the game cannot draw it (the part vanishes)">⚠ crosses</span>' : ''}</div>
+        <div class="part-type" title="${part.img ? part.img.file : part.type} · layer ${pi + 1} of ${parts.length} (1 = drawn first, at the back)"><span class="part-num">${pi + 1}</span> ${part.img ? '\u{1F5BC} ' + part.img.file + (imgIsSheet(part.img) ? ' · ' + imgFrameCount(part.img) + ' frames' : '') : part.type + ' · ' + part.points.length + 'pt'}${part.type==='polygon' && !part.img && crossingsOf(part.points).length ? ' <span style="color:#ff3b5c" title="This polygon crosses itself: the game cannot draw it (the part vanishes)">⚠ crosses</span>' : ''}</div>
         <button class="part-eye${part._hidden ? ' off' : ''}" data-role="eye" title="${part._hidden ? 'Hidden while editing (this view only, nothing is saved). Click to show.' : 'Hide this part while editing (this view only, nothing is saved)'}">${part._hidden ? '◌' : '◉'}</button>
         ${part.img ? '' : `<button class="part-dup" data-role="toggleverts" title="Vertex handles only ever show on the active part anyway. This also hides them WHEN it is active, so a dense point ring (a Circle preset, say) does not blanket the shape and leave nothing else to grab for dragging">${part._hideVerts ? '○ pts' : '● pts'}</button>`}
         <button class="part-dup" title="Duplicate part" data-role="dup">Dup</button>
@@ -3096,6 +3100,9 @@ function renderParts(){
       tool('rotl90', () => rotatePartDeg(pi, -90)); tool('rotl15', () => rotatePartDeg(pi, -15));
       tool('rotr15', () => rotatePartDeg(pi, 15));  tool('rotr90', () => rotatePartDeg(pi, 90));
       tool('fliph', () => flipPart(pi, true)); tool('flipv', () => flipPart(pi, false));
+      const moveLayer = to => { const [pt] = parts.splice(pi, 1); parts.splice(to, 0, pt); activePart = to; activeVert = -1; renderStage(); renderParts(); saveNow(); };
+      tool('laytoback', () => moveLayer(0)); tool('layback', () => moveLayer(Math.max(0, pi - 1)));
+      tool('layfwd', () => moveLayer(Math.min(parts.length - 1, pi + 1))); tool('laytofront', () => moveLayer(parts.length - 1));
       const rotdeg = row.querySelector('[data-role=rotdeg]');
       rotdeg.addEventListener('input', e => { part.rot = round3((+e.target.value || 0) * Math.PI/180); renderStage(); scheduleSave(); });
       rotdeg.addEventListener('change', saveNow);
