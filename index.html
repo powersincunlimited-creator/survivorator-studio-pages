@@ -4531,16 +4531,57 @@ function addFieldBar(obj, file, re) {
 
 // ---- problems
 const FILE_TAB = { game: "rules", enemies: "enemies", abilities: "abilities", heroes: "heroes", powers: "powers", gear: "gear", talents: "talents", achievements: "achievements", bosses: "bosses", ui: "menus", meta: "meta", fusion: "fusion", looks: "looks", hero_effects: "effects", shop: "shop" };
+/* for a problem in one of these files: which item it is about, so a click opens that item, not only the tab */
+const ITEM_NAV = {
+  heroes: { ids: () => ids("heroes", "heroes"), pick: id => { S.sel.hero = id; } },
+  powers: { ids: () => ids("powers", "powers"), pick: id => { S.sel.power = id; } },
+  abilities: { ids: () => ids("abilities", "abilities"), pick: id => { S.sel.ability = id; } },
+  bosses: { ids: () => ids("bosses", "bosses"), pick: id => { S.sel.boss = id; } },
+  enemies: { ids: () => Object.keys((S.files.enemies || {}).kinds || {}), pick: id => { S.sel.enemy = id; } },
+  gear: { ids: () => Object.keys((S.files.gear || {}).sets || {}), pick: id => { S.sel.gearSet = id; } },
+  fusion: { ids: () => Object.keys((S.files.fusion || {}).recipes || {}), pick: id => { S.sel.recipe = id; } },
+  hero_effects: { ids: () => Object.keys((S.files.hero_effects || {}).profiles || {}), pick: id => { S.sel.fxHero = id; } },
+  meta: { ids: () => ((S.files.meta || {}).items || []).map(x => x.id), pick: id => { S.sel.metaItem = id; } },
+  achievements: { ids: () => ((S.files.achievements || {}).achievements || []).map(x => x.id), pick: id => { S.sel.ach = ((S.files.achievements || {}).achievements || []).findIndex(x => x.id === id); } },
+  talents: { ids: () => ((S.files.talents || {}).talents || []).map(x => x.name), pick: id => { S.sel.talent = ((S.files.talents || {}).talents || []).findIndex(x => x.name === id); } },
+};
+/* the item a problem line is about ("heroes.json: scout: needs a puppet" -> scout), or null */
+function problemItem(file, line) {
+  const nav = ITEM_NAV[file]; if (!nav) return null;
+  const body = line.slice(line.indexOf(".json") + 7);   // after "file.json: "
+  const have = new Set(nav.ids());
+  const cands = [body.split(": ")[0].replace(/^(hero|power|boss|ability|item|enemy|kind|set|recipe|talent)\s+/, ""), ...[...body.matchAll(/'([^']+)'/g)].map(m => m[1])];
+  const hit = cands.find(c => have.has(c));
+  return hit === undefined ? null : hit;
+}
 function tabProblems() {
-  const wrap = h("div", {}, h("h2", {}, "Problems"), h("p", { class: "lead" }, "What the same validator the game's tools use finds in this pack. Click one to open the file it is in. Fix them all before pulling the pack into the game."));
+  const wrap = h("div", {}, h("h2", {}, "Problems"), h("p", { class: "lead" }, "What the same validator the game's tools use finds in this pack. Click one to open it. Fix them all before pulling the pack into the game."));
   if (!S.problems.length) { wrap.append(h("p", { class: "chip ok" }, "✓ no problems found")); return wrap; }
-  const open = file => { if (FILE_TAB[file]) S.tab = FILE_TAB[file]; else { S.tab = "content"; S.sel.file = file; S.sel.item = null; } renderNav(); renderMain(); };
+  const open = (file, item) => {
+    if (FILE_TAB[file]) { S.tab = FILE_TAB[file]; if (item !== null && item !== undefined && ITEM_NAV[file]) ITEM_NAV[file].pick(item); }
+    else { S.tab = "content"; S.sel.file = file; S.sel.item = null; }
+    renderNav(); renderMain();
+  };
   const byFile = {};
   for (const p of S.problems) (byFile[p.split(".json")[0]] = byFile[p.split(".json")[0]] || []).push(p);
-  wrap.append(h("p", { class: "dim" }, `${S.problems.length} problem${S.problems.length === 1 ? "" : "s"} in ${Object.keys(byFile).length} file${Object.keys(byFile).length === 1 ? "" : "s"}.`));
-  for (const [file, list] of Object.entries(byFile)) wrap.append(h("details", { class: "card", open: true }, h("summary", { "data-nopolish": "" }, `${file}.json (${list.length})`),
-    h("ul", { class: "problems", style: "margin-top:8px" }, list.map(p => h("li", { title: "Open it", onclick: async () => open(file) }, p.split(": ").slice(1).join(": ")))),
-    h("button", { class: "btn small", onclick: () => open(file) }, "Open " + file + ".json")));
+  const nFiles = Object.keys(byFile).length;
+  const filter = h("input", { type: "text", placeholder: "filter problems…", style: "width:260px", value: S.sel.problemFilter || "" });
+  const copy = h("button", { class: "btn small", title: "Copy every problem as text (to paste somewhere)", onclick: async () => { try { await navigator.clipboard.writeText(S.problems.join("\n")); toast("Copied " + S.problems.length + " lines"); } catch (e) { toast("The browser would not copy: select the lines instead"); } } }, "Copy the list");
+  const jump = h("div", { class: "ctl", style: "gap:5px;margin-bottom:10px" });
+  const groups = [];
+  for (const [file, list] of Object.entries(byFile)) {
+    const items = list.map(p => ({ p, item: problemItem(file, p), text: p.split(": ").slice(1).join(": ") }));
+    const ul = h("ul", { class: "problems", style: "margin-top:8px" });
+    const lis = items.map(x => { const li = h("li", { title: x.item !== null ? `Open ${x.item}` : "Open the file", onclick: async () => open(file, x.item) }, x.item !== null && x.text.startsWith(x.item + ": ") ? [h("b", { style: "color:var(--text)" }, x.item + " "), x.text.slice(x.item.length + 2)] : x.text); li.dataset.t = x.p.toLowerCase(); ul.append(li); return li; });
+    const card = h("details", { class: "card", open: true }, h("summary", { "data-nopolish": "" }, `${file}.json (${list.length})`), ul, h("button", { class: "btn small", onclick: () => open(file, null) }, "Open " + file + ".json"));
+    groups.push({ card, lis, file });
+    jump.append(h("button", { class: "btn small", "data-nopolish": "", title: "Go to this file's problems", onclick: () => { card.open = true; card.scrollIntoView({ block: "start" }); } }, `${file}.json · ${list.length}`));
+  }
+  const apply = () => { const q = (S.sel.problemFilter || "").trim().toLowerCase(); let shown = 0; for (const g of groups) { let n = 0; for (const li of g.lis) { const on = !q || li.dataset.t.includes(q); li.style.display = on ? "" : "none"; if (on) n++; } g.card.style.display = n ? "" : "none"; shown += n; } shownNote.textContent = q ? `${shown} of ${S.problems.length} shown` : ""; };
+  const shownNote = h("span", { class: "dim" }, "");
+  filter.addEventListener("input", () => { S.sel.problemFilter = filter.value; apply(); });
+  wrap.append(h("div", { class: "ctl", style: "gap:12px;margin-bottom:10px" }, h("span", { class: "chip bad" }, `${S.problems.length} problem${S.problems.length === 1 ? "" : "s"} in ${nFiles} file${nFiles === 1 ? "" : "s"}`), filter, shownNote, h("span", { style: "flex:1" }), copy), jump, ...groups.map(g => g.card));
+  apply();
   return wrap;
 }
 
