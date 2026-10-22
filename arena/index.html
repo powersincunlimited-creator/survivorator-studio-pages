@@ -1220,19 +1220,35 @@ function fitArena() { if (!W || !H) { needFit = true; return; } const m = doc.ca
 function render() {
   fixSel();
   $("stats").textContent = (() => { let parts = 0, inst = 0; doc.props.forEach(p => { parts += p.parts.length; inst += p.parts.length * (rep(p).nx || 1) * (rep(p).ny || 1); }); return `${doc.props.length} props · ${parts} parts (${inst} drawn)`; })();
-  renderProps(); renderInspector(); redraw(); updateCrossPill();
+  renderProps(); renderInspector(); redraw(); updateCrossPill(); updateAddPanel();
   $("undo").disabled = !undoStack.length; $("redo").disabled = !redoStack.length;
 }
+/* the Add panel: what the buttons make (a new prop, or a part of the selected prop), then the shapes and the pictures */
+function updateAddPanel() {
+  const p = sel(), partMode = ui.addMode === "part";
+  const bp = $("addModeProp"), bt = $("addModePart"); if (!bp || !bt) return;
+  bp.classList.toggle("on", !partMode); bt.classList.toggle("on", partMode); bt.disabled = !p;
+  $("addNote").textContent = !partMode ? "Each button below makes a new prop." : p ? "Each button below adds a part to \u201c" + (p.name || p.id) + "\u201d." : "Nothing is selected, so each button makes a new prop.";
+}
+const addAsPart = e => ui.addMode === "part" ? !e.shiftKey : !!e.shiftKey;   // Shift does the opposite of the choice
 function fillLibrary() {
   const box = $("lib"); box.innerHTML = "";
   const group = (label) => { const g = document.createElement("div"); g.className = "libgrp"; const l = document.createElement("span"); l.className = "gl"; l.textContent = label; const r = document.createElement("div"); r.className = "libbtns"; g.append(l, r); box.appendChild(g); return r; };
+  const mk = (text, title, fn, cls) => { const b = document.createElement("button"); b.type = "button"; b.className = "sm" + (cls ? " " + cls : ""); b.textContent = text; b.title = title; b.addEventListener("click", fn); return b; };
+  const as = group("Add as");
+  const seg = document.createElement("span"); seg.className = "tg"; seg.setAttribute("role", "group"); seg.setAttribute("aria-label", "What the buttons below make");
+  const bp = mk("A new prop", "Each button makes a new prop (Shift: a part of the selected prop instead)", () => { ui.addMode = "prop"; updateAddPanel(); }); bp.id = "addModeProp";
+  const bt = mk("A part of the selected prop", "Each button adds a part to the selected prop (Shift: a new prop instead)", () => { if (!sel()) return; ui.addMode = "part"; updateAddPanel(); }); bt.id = "addModePart";
+  seg.append(bp, bt); as.appendChild(seg);
+  const note = document.createElement("p"); note.className = "hint"; note.id = "addNote"; note.style.cssText = "width:100%;margin:0"; as.appendChild(note);
   const shapes = group("Shapes");
-  Object.keys(SHAPES).forEach(k => { const b = document.createElement("button"); b.type = "button"; b.className = "sm"; b.textContent = "+ " + k; b.title = "A new prop with this shape (or a new part inside the selected prop: hold Shift)"; b.addEventListener("click", e => e.shiftKey ? addPartTo(k) : addProp(k)); shapes.appendChild(b); });
+  Object.keys(SHAPES).forEach(k => shapes.appendChild(mk("+ " + k, "Add this shape (a new prop or a part of the selected one, as chosen above)", e => addAsPart(e) ? addPartTo(k) : addProp(k))));
   const pics = group("Pictures");
-  const pb = document.createElement("button"); pb.type = "button"; pb.className = "sm"; pb.textContent = "+ Picture\u2026"; pb.title = "A hand-drawn picture from the library as a new prop (Shift: a new part of the selected prop)"; pb.addEventListener("click", e => addPicture(e.shiftKey)); pics.appendChild(pb);
-  const pa = document.createElement("button"); pa.type = "button"; pa.className = "sm" + (ui.play ? " on" : ""); pa.textContent = "\u25B6 Animate pictures"; pa.title = "Play the pictures that are sheets of frames, as the game will (off: the frame slider shows one frame)"; pa.addEventListener("click", () => { ui.play = !ui.play; pa.classList.toggle("on", ui.play); redraw(); }); pics.appendChild(pa);
-  const pm = document.createElement("button"); pm.type = "button"; pm.className = "sm"; pm.textContent = "Open the library"; pm.title = "The picture library: upload drawings, cut out the parts you want"; pm.addEventListener("click", () => { if (!cloudOk) { setStatus("the picture library needs the cloud", "warn"); return; } imgPicker({ title: "Pictures" }); }); pics.appendChild(pm);
-  const t = document.createElement("p"); t.className = "hint"; t.style.width = "100%"; t.style.margin = "2px 0 0"; t.textContent = "Shift-click adds the shape as a new part of the selected prop. To copy a whole building or manhole, select it and press Duplicate."; box.appendChild(t);
+  pics.appendChild(mk("+ Picture\u2026", "A hand-drawn picture from the library (a new prop or a part of the selected one, as chosen above)", e => addPicture(addAsPart(e))));
+  const pa = mk("\u25B6 Animate pictures", "Play the pictures that are sheets of frames, as the game will (off: the frame slider shows one frame)", () => { ui.play = !ui.play; pa.classList.toggle("on", ui.play); redraw(); }, ui.play ? "on" : ""); pics.appendChild(pa);
+  pics.appendChild(mk("Open the library", "The picture library: upload drawings, cut out the parts you want", () => { if (!cloudOk) { setStatus("the picture library needs the cloud", "warn"); return; } imgPicker({ title: "Pictures" }); }));
+  const t = document.createElement("p"); t.className = "hint"; t.style.cssText = "width:100%;margin:2px 0 0"; t.textContent = "To copy a whole building or manhole, select it and press Duplicate."; box.appendChild(t);
+  updateAddPanel();
 }
 
 /* ---------- persistence: Firestore (same project as the Weapon & Shot Editor) ---------- */
