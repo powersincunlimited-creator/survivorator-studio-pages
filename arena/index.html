@@ -94,6 +94,9 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--wl, 2
 .hint { color: var(--dim); font-size: 12px; margin: 0; }
 /* the inspector: collapsible sections, each a two-column grid (short controls side by side; names, button rows, lists and notes span both columns) */
 #inspector { container-type: inline-size; }
+.insbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 2px 2px 8px; }
+.insname { min-width: 0; display: grid; } .insname b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; } .insname span { color: var(--dim); font: 11px var(--f-mono); }
+.insbar .btns { display: flex; gap: 4px; }
 .isec { border: 1px solid var(--line); border-radius: 5px; background: rgba(255, 255, 255, 0.012); }
 .isec > summary { list-style: none; cursor: pointer; padding: 5px 10px; font: 600 11px var(--f-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); display: flex; align-items: center; gap: 6px; user-select: none; }
 .isec > summary::-webkit-details-marker { display: none; }
@@ -1106,10 +1109,17 @@ function renderInspector(light) {
   if (light && p && box.dataset.sel === p.id) { const x = box.querySelector("[data-k=posx]"), y = box.querySelector("[data-k=posy]"); if (x) { x.value = p.pos[0]; y.value = p.pos[1]; } return; }
   box.dataset.sel = p ? p.id : "";
   const keepOpen = () => box.querySelectorAll("details.isec").forEach(d => d.addEventListener("toggle", () => { insOpen[d.dataset.sec] = d.open; }));
-  if (!p) { box.innerHTML = `<p class="hint">Nothing selected. Click a prop on the canvas or in the list.</p>` + arenaFields(); wireArenaFields(box); keepOpen(); return; }
+  if (!p) {
+    box.innerHTML = `<p class="hint">Nothing selected. Click a prop on the canvas or in the list.</p>` + arenaFields() + arenaGlance(); wireArenaFields(box); keepOpen();
+    box.querySelectorAll("[data-layerfilter]").forEach(b => b.addEventListener("click", () => { ui.filter = b.dataset.layerfilter; $("filter").value = ui.filter; renderProps(); }));
+    return;
+  }
   const pt = p.parts[ui.part], r = rep(p);
+  // who is selected, and the things to do with the whole prop
+  const copies = (r.nx || 1) * (r.ny || 1), nCopies = copies > 1 ? ` · ${copies} copies` : "";
+  let h = `<div class="insbar"><div class="insname"><b>${esc(p.name || p.id)}</b><span>${esc(p.layer || "misc")} · ${p.parts.length} part${p.parts.length === 1 ? "" : "s"}${nCopies}</span></div><div class="btns"><button type="button" class="sm" data-bar="zoom" title="Zoom the canvas to this prop">Zoom to</button><button type="button" class="sm" data-bar="dup" title="Duplicate this prop (Ctrl+D)">Duplicate</button><button type="button" class="sm danger" data-bar="del" title="Delete this prop (Delete)">Delete</button></div></div>`;
   // the prop
-  let h = SEC("Prop", F("Name", `<input type="text" data-k="name" value="${esc(p.name || p.id)}">`, true)
+  h += SEC("Prop", F("Name", `<input type="text" data-k="name" value="${esc(p.name || p.id)}">`, true)
     + F("Layer", `<input type="text" data-k="layer" value="${esc(p.layer || "")}" list="layers"><datalist id="layers">${LAYER_ORDER.map(l => `<option value="${l}">`).join("")}</datalist>`)
     + F("Z order", `<input type="number" data-k="z" value="${p.z}" step="1">`, false, "Draw order: lower is further back. Floor -100, decals -96, light -92, buildings -80, building light -78. Heroes and enemies are at 0.")
     + F("Blend", `<select data-k="blend"><option value="">normal</option><option value="add"${p.blend === "add" ? " selected" : ""}>additive (light)</option></select>`)
@@ -1149,6 +1159,9 @@ function renderInspector(light) {
   }
   const w = (p.parts.length > 400) ? '<p class="hint">Big prop: edits redraw the whole canvas.</p>' : ""; h += w;
   box.innerHTML = h; wireInspector(box, p, pt); keepOpen();
+  box.querySelector("[data-bar=zoom]").addEventListener("click", () => zoomToProp());
+  box.querySelector("[data-bar=dup]").addEventListener("click", () => $("dupBtn").click());
+  box.querySelector("[data-bar=del]").addEventListener("click", () => $("delBtn").click());
 }
 function wireInspector(box, p, pt) {
   const set = (fn, key) => e => { snapshot(key || "insp"); fn(e.target); markDirty(); redraw(); if (["pcol", "palpha"].includes(e.target.dataset.k)) renderPartSwatches(); };
@@ -1207,6 +1220,13 @@ function flipPartAbout(horizontal) {
   pt.rot = -(pt.rot || 0); markDirty(); render();
 }
 function renderPartSwatches() { const p = sel(); if (!p) return; document.querySelectorAll("#partList .row").forEach((r, i) => { const q = p.parts[i]; if (q) r.querySelector(".sw i").style.background = cssColor(q.color); }); }
+/* the arena in numbers, and each layer as a button that filters the Props list to it */
+function arenaGlance() {
+  let parts = 0, drawn = 0; const byLayer = {};
+  doc.props.forEach(q => { const n = q.parts.length, k = n * (rep(q).nx || 1) * (rep(q).ny || 1); parts += n; drawn += k; const L = q.layer || "misc"; byLayer[L] = (byLayer[L] || 0) + 1; });
+  const layers = Object.keys(byLayer).sort((a, b) => (LAYER_ORDER.indexOf(a) + 1 || 99) - (LAYER_ORDER.indexOf(b) + 1 || 99));
+  return SEC("The arena at a glance", `<p class="hint">${doc.props.length} props · ${parts} parts (${drawn} drawn).</p><div class="btns" style="grid-column:1 / -1">${layers.map(L => `<button type="button" class="sm" data-layerfilter="${esc(L)}" title="Show only this layer in the Props list">${esc(L)} · ${byLayer[L]}</button>`).join("")}</div>`, true);
+}
 function arenaFields() {
   const m = doc.camera_margin, a = (k, v, step) => `<input type="number" data-a="${k}" value="${v}" step="${step}">`;
   return SEC("Arena", F("Size (width, height)", `<div class="xy">${a("w", doc.size[0], 100)}${a("h", doc.size[1], 100)}</div>`, true)
