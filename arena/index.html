@@ -1374,7 +1374,7 @@ async function createArena(label, from) {
   if (!/^[a-z][a-z0-9_]{1,28}$/.test(id)) throw new Error("Use a name with at least two letters or digits");
   if (id === "data" || id === "index" || arenaEntry(id)) throw new Error("There is already an arena with the id " + id + ": pick another name");
   let start;
-  if (from === "@current") start = clone(doc); else if (from === "@default") start = clone(DEFAULT);
+  if (from === "@current") start = clone(doc); else if (from === "@default") start = clone(DEFAULT); else if (from === "@empty") { start = clone(DEFAULT); start.props = []; }
   else if (from.startsWith("arena:")) start = await loadArenaDoc(from.slice(6));
   else if (from.startsWith("pack:")) start = await loadPackArena(from.slice(5));
   else throw new Error("Pick what to start from");
@@ -1410,7 +1410,7 @@ async function renderArenaDialog(msg) {
   const nw = document.createElement("div"); nw.style.cssText = "display:grid;gap:6px";
   const name = input("name, e.g. Castle courtyard");
   const from = select(), addOpt = (v, t) => { const o = document.createElement("option"); o.value = v; o.textContent = t; from.appendChild(o); };
-  addOpt("@current", "start from: this arena as it is now (Save as)"); addOpt("@default", "start from: the arena that ships in the game");
+  addOpt("@current", "start from: this arena as it is now (Save as)"); addOpt("@default", "start from: the arena that ships in the game"); addOpt("@empty", "start from: an empty arena (the size and camera margins, no props)");
   [{ id: "", label: arenaLabel("") }, ...ARENAS].forEach(e => { if (e.id !== ARENA) addOpt("arena:" + e.id, "start from: " + e.label); });
   packs.forEach(pk => addOpt("pack:" + pk, "start from: the arena in pack " + pk));
   nw.append(lab("Name", name), lab("Start from", from), button("Create and open", async () => { const id = await createArena(name.value, from.value); $("arenaDlg").close(); setStatus("Created " + arenaLabel(id), "ok"); }, "primary"));
