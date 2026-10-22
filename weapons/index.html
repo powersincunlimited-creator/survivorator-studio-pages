@@ -149,6 +149,9 @@
   .menu-pop hr{margin:2px 0; border:0; border-top:1px solid var(--hair)}
   .menu > .btn[aria-expanded="true"]{border-color:var(--cyan); color:var(--cyan)}
   .parts-head-add .tg .btn{padding:4px 8px}
+  .f.chg .fl::after{content:" ●"; color:var(--magenta)}
+  .rst{background:none; border:0; color:var(--cyan); cursor:pointer; padding:0 4px; font-size:12px; margin-left:2px}
+  .rst[hidden]{display:none}
   .part-num{font-family:var(--font-mono); font-size:10px; font-weight:600; color:var(--text-faint)}
   .canvas-toolbar > .tg:last-child{margin-left:auto}
   @media (max-width: 700px){ .hg{padding-right:8px} .canvas-toolbar > .tg:last-child{margin-left:0} }
@@ -2871,11 +2874,20 @@ function mCell(g, label, inner, wide, title){
   const l = document.createElement('div'); l.className = 'fl'; l.textContent = label; f.appendChild(l); f.appendChild(inner); g.appendChild(f); return f;
 }
 /* one number of the shape's settings (meta): empty = not set; it redraws and saves as you type */
-function mNumber(g, key, label, step, def, title){
+function mNumber(g, key, label, step, def, title, resettable){
   const inp = document.createElement('input'); inp.type = 'number'; inp.step = step; inp.value = meta[key] == null ? (def == null ? '' : def) : meta[key];
   inp.addEventListener('input', e => { if(e.target.value === '') delete meta[key]; else meta[key] = +e.target.value; renderStage(); scheduleSave(); });
   inp.addEventListener('change', saveNow);
-  mCell(g, label, inp, false, title); return inp;
+  const cell = mCell(g, label, inp, false, title);
+  // a weapon / shot setting that differs from its default is marked, with an arrow that puts it back (the effect settings have no fixed default: what an effect was made at is its own value)
+  if(!resettable || def == null) return inp;   // (no default, no arrow: a weapon's muzzle is its own value, not something to reset)
+  const rst = document.createElement('button'); rst.type = 'button'; rst.className = 'rst'; rst.textContent = '\u21BA'; rst.title = 'Put back to the default' + (def != null ? ' (' + def + ')' : ' (not set)');
+  cell.querySelector('.fl').appendChild(rst);
+  const sync = () => { const on = meta[key] != null && +meta[key] !== def; rst.hidden = !on; cell.classList.toggle('chg', on); };
+  inp.addEventListener('input', sync);
+  rst.addEventListener('click', e => { e.stopPropagation(); delete meta[key]; inp.value = def == null ? '' : def; sync(); renderStage(); saveNow(); });
+  sync();
+  return inp;
 }
 function bindRowHtml(part, key, label){
   const b = part[key], g = (o, k, d) => (o && o[k] != null) ? o[k] : d;
@@ -3167,7 +3179,7 @@ function renderMetaPanel(){
   const fields = META_FIELDS[current.ns] || [];
   if(!fields.length) return;
   const g = mSection(box, current.ns === 'weapons' ? 'Weapon settings' : 'Shot settings');
-  for(const f of fields) mNumber(g, f.key, f.label, f.step, f.def, f.title);
+  for(const f of fields) mNumber(g, f.key, f.label, f.step, f.def, f.title, true);
 }
 
 function syncPreviewState(){
