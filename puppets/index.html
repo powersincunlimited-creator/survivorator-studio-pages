@@ -136,10 +136,12 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--wl, 3
 @container (max-width: 230px) { .ig, .ig .ig2 { grid-template-columns: minmax(0, 1fr); } }
 .btns { display: flex; flex-wrap: wrap; gap: 6px; }
 .hint { color: var(--dim); font-size: 12px; margin: 0; }
-#editWrap { position: relative; background: #0d0e19; flex: 1; min-height: 360px; }
-#edit { width: 100%; height: 100%; display: block; touch-action: none; cursor: default; }
-#editTools { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
-#editHint { position: absolute; left: 10px; bottom: 8px; font: 11px var(--f-mono); color: var(--dim); pointer-events: none; }
+#editWrap { position: relative; background: #0d0e19; flex: 1; min-height: 360px; display: flex; flex-direction: column; }
+#edit { width: 100%; flex: 1; min-height: 0; display: block; touch-action: none; cursor: default; }
+#editTools { order: -1; flex: none; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel); position: relative; z-index: 3; }
+#editTools .tg select { background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 3px 6px; font-size: 12px; }
+#editCoord { position: absolute; right: 10px; bottom: 8px; font: 11px var(--f-mono); color: var(--dim); pointer-events: none; background: #05050bcc; padding: 2px 6px; border-radius: 3px; }
+#editHint { position: absolute; left: 10px; bottom: 8px; max-width: calc(100% - 200px); font: 11px var(--f-mono); color: var(--dim); pointer-events: none; }
 #pvWrap[data-bg="mid"] { background: #6d7390; } #pvWrap[data-bg="light"] { background: #dfe3f2; }
 #pvWrap[data-bg="check"] { background: repeating-conic-gradient(#2a2e4a 0% 25%, #1a1d33 0% 50%) 0 0 / 22px 22px; }
 #pvWrap { background: #0d0e19; aspect-ratio: 1 / 0.9; position: relative; flex: none; min-height: 120px; }
@@ -225,8 +227,9 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
     <div id="editWrap">
       <svg id="edit" tabindex="0" aria-label="Edit canvas"></svg>
       <div id="editTools">
-        <div class="tg" role="group" aria-label="View" title="What the canvas shows"><button type="button" id="gridBtn" class="on">Grid</button><button type="button" id="handlesBtn" class="on">Handles</button><button type="button" id="outlinesBtn" class="on" title="Show or hide every outline on this canvas, to see the shapes underneath. Editing view only: the outlines themselves are not changed, and the preview and the game still draw them.">Outlines</button><button type="button" id="mirrorViewBtn" title="Preview this drawing mirrored, as the right-facing hero uses it">Mirror view</button></div>
-        <div class="tg" role="group" aria-label="Zoom"><button type="button" id="fitBtn">Fit</button><button type="button" id="zoomOutBtn" title="Zoom out">&minus;</button><button type="button" id="zoomInBtn" title="Zoom in (or pinch with two fingers)">+</button></div>
+        <div class="tg" role="group" aria-label="Show on the canvas" title="What the canvas shows (view only: the drawing itself does not change)"><button type="button" id="gridBtn" class="on" title="A grid in puppet units, with the hero's body box">Grid</button><button type="button" id="handlesBtn" class="on" title="The points and the pivot handle of the selected part">Handles</button><button type="button" id="outlinesBtn" class="on" title="Show or hide every outline on this canvas, to see the shapes underneath. Editing view only: the outlines themselves are not changed, and the preview and the game still draw them.">Outlines</button><button type="button" id="mirrorViewBtn" title="Preview this drawing mirrored, as the right-facing hero uses it">Mirror view</button></div>
+        <div class="tg" role="group" aria-label="Snap" title="Where a point, a pivot or a polygon lands when you drag it (hold Ctrl to drag without snapping)"><select id="snapSel" aria-label="Snap"><option value="0">Snap: off</option><option value="0.25">Snap: 0.25</option><option value="0.5">Snap: 0.5</option><option value="1">Snap: 1</option><option value="2">Snap: 2</option><option value="5">Snap: 5</option></select></div>
+        <div class="tg" role="group" aria-label="Zoom"><button type="button" id="fitBtn" title="Frame the whole drawing">Fit</button><button type="button" id="selZoomBtn" title="Zoom to the selected part (and everything inside it)">Zoom to part</button><button type="button" id="zoomOutBtn" title="Zoom out (or scroll the wheel)">&minus;</button><button type="button" id="zoomInBtn" title="Zoom in (or scroll the wheel, or pinch with two fingers)">+</button></div>
         <div class="tg" role="group" aria-label="Editing mode"><button type="button" id="pivotOnlyBtn" title="Pivot only: dragging a pivot (or typing its Position) moves just the pivot, and its polygons and sub-parts stay where they are on screen. Off: everything inside moves with it. Holding Shift while dragging does the opposite of this setting.">Pivot only</button></div>
         <div class="menu" id="mirrorMenu">
           <button type="button" id="mirrorBtn" aria-haspopup="menu" aria-expanded="false" title="Copy one side to the other, or keep them linked">Mirror &#9662;</button>
@@ -240,6 +243,7 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
         </div>
         <span id="linkNote" class="pill warn" hidden>generated from the other side: edit that one</span>
       </div>
+      <div id="editCoord"></div>
       <div id="editHint">click a part · drag it · drag a handle · click the orange square on an edge to add a point · Alt-click a point to delete · wheel zooms · hold Space and drag to pan</div>
     </div>
   </div>
@@ -1100,6 +1104,7 @@ const edit = $("edit");
 function editWorld() { return $("editWorld"); }
 function renderEdit() {
   edit.innerHTML = ""; const w = edit.clientWidth || 800, h = edit.clientHeight || 700;
+  if ($("editCoord") && !drag) updateEditCoord(null);
   const world = el("g", { id: "editWorld", transform: `translate(${w / 2 + ui.pan[0]} ${h / 2 + ui.pan[1]}) scale(${ui.zoom})` }, edit);
   if (ui.grid) {
     const gl = el("g", { stroke: "#1b1e34", "stroke-width": 0.08 }, world);
@@ -1161,6 +1166,20 @@ function drawPivot(world, g, node) {
 /* pointer interaction */
 let drag = null, spaceDown = false;
 function svgPoint(e) { const r = edit.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+/* a point for a drag: where the pointer is in `host`'s own space, snapped to the grid in DRAWING space (so a turned or scaled part still lands on the grid); Ctrl drags free */
+function snapLocal(host, e) {
+  const l = localOf(host, e), g = ui.snap || 0; if (!g || e.ctrlKey) return l;
+  const vg = edit.__viewG, hm = host.getScreenCTM(), vm = vg && vg.getScreenCTM(); if (!hm || !vm) return l;
+  const pt = edit.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const w = pt.matrixTransform(vm.inverse());
+  w.x = Math.round(w.x / g) * g; w.y = Math.round(w.y / g) * g;
+  return w.matrixTransform(vm).matrixTransform(hm.inverse());
+}
+function drawingPoint(e) { const vg = edit.__viewG, vm = vg && vg.getScreenCTM(); if (!vm) return null; const pt = edit.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; return pt.matrixTransform(vm.inverse()); }
+function updateEditCoord(e) {
+  const p = e && drawingPoint(e);
+  $("editCoord").textContent = (p ? "x " + p.x.toFixed(1) + "  y " + p.y.toFixed(1) + "   " : "") + "zoom " + Math.round(ui.zoom * 100) + "%" + (ui.snap ? "   snap " + ui.snap : "");
+}
+edit.addEventListener("pointermove", updateEditCoord); edit.addEventListener("pointerleave", () => updateEditCoord(null));
 function localOf(elem, e) { const pt = edit.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const m = elem.getScreenCTM(); return m ? pt.matrixTransform(m.inverse()) : { x: 0, y: 0 }; }
 edit.addEventListener("pointerdown", e => {
   edit.focus();
@@ -1201,12 +1220,13 @@ edit.addEventListener("pointerdown", e => {
 edit.addEventListener("pointermove", e => {
   if (!drag) return;
   if (drag.kind === "pan") { const s = svgPoint(e); ui.pan = [drag.pan[0] + s[0] - drag.start[0], drag.pan[1] + s[1] - drag.start[1]]; renderEdit(); return; }
-  if (drag.kind === "vertex") { const l = localOf($(drag.hostId), e); drag.p.pts[drag.i] = [round2(l.x), round2(l.y)]; docVer++; markDirty(); renderEdit(); renderInspector(); return; }
-  if (drag.kind === "pivot") { const l = localOf($(drag.hostId), e); movePivot(drag.node, l.x, l.y, ui.pivotOnly !== e.shiftKey); docVer++; markDirty(); renderEdit(); renderInspector(); return; }
+  if (drag.kind === "vertex") { const l = snapLocal($(drag.hostId), e); drag.p.pts[drag.i] = [round2(l.x), round2(l.y)]; docVer++; markDirty(); renderEdit(); renderInspector(); return; }
+  if (drag.kind === "pivot") { const l = snapLocal($(drag.hostId), e); movePivot(drag.node, l.x, l.y, ui.pivotOnly !== e.shiftKey); docVer++; markDirty(); renderEdit(); renderInspector(); return; }
   if (drag.kind === "move") {
     const pe = edit.__built.polys.get(drag.p); const l = localOf(pe, e);
-    const dx = l.x - drag.startPt.x, dy = l.y - drag.startPt.y;
+    let dx = l.x - drag.startPt.x, dy = l.y - drag.startPt.y;
     if (!drag.snap && Math.hypot(dx, dy) * ui.zoom < 3) return;   // a click, not a drag
+    if (ui.snap && !e.ctrlKey) { dx = Math.round(dx / ui.snap) * ui.snap; dy = Math.round(dy / ui.snap) * ui.snap; }   // a polygon moves by whole steps
     if (!drag.snap) { snapshot(); drag.snap = true; drag.orig = clone(drag.p.pts); }
     drag.p.pts = drag.orig.map(q => [round2(q[0] + dx), round2(q[1] + dy)]); docVer++; markDirty(); renderEdit(); renderInspector();
   }
@@ -1407,6 +1427,7 @@ function renderInspectorBody() {
     g.appendChild(field("Reset", rb0, true));
     const h = document.createElement("p"); h.className = "hint"; h.textContent = "Rotation and scale here are the REST values; running and aiming move the rig parts on top of them."; g.appendChild(h);
     if (!isRoot && !rn) { g = insSection(ins, "Motion", !o.mv, o.mv ? Object.keys(o.mv).length + " set" : ""); motionControls(g, o); }
+    if (!isRoot && rn && mirrorTopName(rn)) { g = insSection(ins, "Motion", true, "the game moves it"); rigMotionControls(g, o); }
     g = insSection(ins, "Section line", false, o.ow > 0 ? "on" : "off"); sectionOutlineControls(g, o);
     g = insSection(ins, "Add inside", false, o.kids.length ? o.kids.length + " inside" : "empty");
     const b = document.createElement("div"); b.className = "btns q";
@@ -1491,6 +1512,56 @@ function mInv(m) { const d = m[0] * m[3] - m[1] * m[2]; if (Math.abs(d) < 1e-9) 
 function restWorld(root, target) { const path = pathTo(root, target).reverse(); path.push(target); let m = [1, 0, 0, 1, 0, 0]; path.forEach(n => { m = mMul(m, mLocal(n)); }); return m; }
 /* Outline the WHOLE section: one outline around the silhouette of the part's own polygons, drawn behind all of them
    (so no lines between its polygons). Turning it on switches the polygons' own outlines off; turning it off puts them back. */
+/* ---- the mirror part: armNear <-> armFar, legNear <-> legFar, armL <-> armR ... A pivot "armNear shoulder pivot" plays the same role as "armFar shoulder pivot" on the other side ---- */
+const NEAR_FAR = [["armNear", "armFar"], ["legNear", "legFar"], ["armL", "armR"], ["legL", "legR"], ["tailL", "tailR"]];
+function mirrorTopName(n) { for (const [a, b] of NEAR_FAR) { if (n === a) return b; if (n === b) return a; } return ""; }
+function mirrorOf(o) {   // the pivot on the other side that has the same role (matched by name, the way the naming convention builds names), or null
+  const root = doc.views[ui.view], top = topOf(ui.view, o); if (!top) return null;
+  const mt = mirrorTopName(top.name || ""); if (!mt) return null;
+  const nm = o === top ? mt : (o.name || "").startsWith(top.name + " ") ? mt + o.name.slice(top.name.length) : ""; if (!nm) return null;
+  let hit = null; walk(root, n => { if (!isPoly(n) && n.name === nm && n !== o) hit = n; }); return hit;
+}
+const TAU = Math.PI * 2, deg = r => Math.round(r * 180 / Math.PI * 10) / 10;
+const oppositePhase = ph => Math.round((((ph || 0) + Math.PI) % TAU + TAU) % TAU * 10000) / 10000;
+const PHASE_MOVES = ["swing", "sway", "lift", "bob"];   // the motions a phase shifts: lean is a steady turn and aim follows the aim, so a phase changes neither
+const phaseMatters = mv => !!mv && PHASE_MOVES.some(k => mv[k]);
+/* Give every pivot inside `o` (and `o` itself) the phase opposite to its mirror pivot's. A pivot with no motion of its own gets a copy of its mirror's motion with the phase turned half a cycle. Rig parts are left alone (the game moves them). One undo step. */
+function matchMirrorPhase(o) {
+  const ids = rigIdSet(), todo = [];
+  walk(o, n => { if (isPoly(n) || ids.has(n.id)) return; const m = mirrorOf(n); if (m && m.mv) todo.push([n, m]); });
+  if (!todo.length) { setStatus("No pivot inside has a mirror pivot with a motion to match (names must follow the convention: armNear shoulder pivot / armFar shoulder pivot)", "warn"); return; }
+  let set = 0, copied = 0, inert = 0;
+  change(() => { todo.forEach(([n, m]) => {
+    if (n.mv) set++; else { n.mv = clone(m.mv); copied++; }
+    const ph = oppositePhase(m.mv.ph); if (ph) n.mv.ph = ph; else delete n.mv.ph;
+    if (!phaseMatters(n.mv)) inert++;
+  }); });
+  setStatus(`Opposite phase set on ${set} pivot${set === 1 ? "" : "s"}` + (copied ? `, motion copied to ${copied} more` : "") + (inert ? `. ${inert} of them have no Run swing, Idle sway, Lift or Bounce, so a phase changes nothing for them` : ""), inert ? "warn" : "ok");
+}
+/* the "Mirror part" row of a pivot's Motion section (or of a rig part's) */
+function mirrorControls(g, o, whole) {
+  const mir = mirrorOf(o), top = topOf(ui.view, o), mt = top ? mirrorTopName(top.name || "") : "";
+  if (!mt) return;
+  const box = document.createElement("div"); box.className = "w2"; box.style.display = "grid"; box.style.gap = "6px";
+  const t = document.createElement("p"); t.className = "hint"; box.appendChild(t);
+  const bs = document.createElement("div"); bs.className = "btns"; box.appendChild(bs);
+  if (mir) {
+    const mv = mir.mv, label = (mir.name || "pivot");
+    t.textContent = `Mirror part: "${label}"` + (mv ? ` (phase ${deg(mv.ph || 0)}°${phaseMatters(mv) ? "" : ", but it has no Run swing, Idle sway, Lift or Bounce for a phase to shift"})` : " (no motion of its own)");
+    if (!whole) bs.appendChild(btn("Phase opposite to it", () => change(() => { o.mv = o.mv || {}; const ph = oppositePhase(mv ? mv.ph : 0); if (ph) o.mv.ph = ph; else delete o.mv.ph; if (!Object.keys(o.mv).length) delete o.mv; }, "mv"), "", false));
+    if (!whole && mv) bs.appendChild(btn("Copy its motion, phase opposite", () => change(() => { o.mv = clone(mv); const ph = oppositePhase(mv.ph); if (ph) o.mv.ph = ph; else delete o.mv.ph; }, "mv"), "", false));
+    bs.appendChild(btn(whole ? "Opposite phase for everything inside" : "…and for everything inside", () => matchMirrorPhase(o), "", false));
+  } else if (o === top || (o.name || "").startsWith(top.name + " ")) {
+    t.textContent = `Its mirror part would be "${o === top ? mt : mt + (o.name || "").slice(top.name.length)}", but nothing has that name in this drawing.`;
+    if (whole) bs.appendChild(btn("Opposite phase for everything inside", () => matchMirrorPhase(o), "", false));
+  } else { t.textContent = `Name this pivot "${top.name} …" (the part's name first) so its mirror part can be found.`; }
+  g.appendChild(box);
+}
+/* a rig part (armNear, legFar ...): the game moves it, but the pivots inside it can carry motions of their own */
+function rigMotionControls(g, o) {
+  const h = document.createElement("p"); h.className = "hint"; h.textContent = "The game animates this part itself (a near and a far arm or leg already swing against each other). Pivots inside it can add a Motion of their own on top; a picture rides along with its pivot.";
+  g.appendChild(h); mirrorControls(g, o, true);
+}
 /* A MOTION for a pivot you added (not a rig part: those are animated by the game's own code). Stored as node.mv and played by HeroPuppet._apply_movers, driven by the run cycle, the clock and the aim. */
 function motionControls(g, o) {
   const DEF = { speed: 1, sway_rate: 1.8 }, D = 180 / Math.PI;
@@ -1498,13 +1569,15 @@ function motionControls(g, o) {
   const num = (label, key, tip, deg, def = 0, step = 1) => { const mv = o.mv || {}, raw = mv[key] === undefined ? def : mv[key]; const i = numInput(deg ? Math.round(raw * D * 10) / 10 : raw, v => setMv(key, deg ? v / D : v, def), step); i.title = tip; g.appendChild(field(label, i)); };
   num("Run swing °", "swing", "Rotates back and forth with the run cycle (the way legs and arms swing). 0 = off. Negative swings the other way.", true);
   num("Run speed ×", "speed", "How fast it follows the run cycle: 1 = the same as the legs, 2 = twice as fast (like the coat tail's flap).", false, 1, 0.25);
-  num("Phase °", "ph", "Start offset in the cycle, so two parts do not move in step (180 = opposite).", true);
+  num("Phase °", "ph", "Start offset in the cycle, so two parts do not move in step (180 = opposite). It only shifts Run swing, Idle sway, Lift and Bounce: Lean is a steady turn and Aim follows the aim, so a phase changes neither.", true);
   num("Lean °", "lean", "A steady turn while running (like the coat tail streaming back).", true);
   num("Lift", "lift", "Units it rises on the up-half of each step (like a stepping leg).", false, 0, 0.25);
   num("Bounce", "bob", "Units it bounces with every step (like the head bob).", false, 0, 0.25);
   num("Idle sway °", "sway", "A slow rotation that is always on, even standing still (like the coat tail's sway).", true);
   num("Sway rate", "sway_rate", "Speed of the idle sway, radians per second.", false, 1.8, 0.1);
   num("Aim turn °", "aim", "Turns toward the aim direction while aiming (like the torso lean).", true);
+  if (o.mv && o.mv.ph && !phaseMatters(o.mv)) { const w = document.createElement("p"); w.className = "hint"; w.style.color = "var(--warn)"; w.textContent = "⚠ This phase does nothing yet: give the pivot a Run swing, Idle sway, Lift or Bounce for it to shift (Lean and Aim ignore the phase)."; g.appendChild(w); }
+  mirrorControls(g, o, false);
   const h = document.createElement("p"); h.className = "hint"; h.textContent = "Added on top of this pivot's rest pose; everything inside it moves too. Watch it in the Live preview (Run / Idle / Aim). Rotations flip automatically on the Right drawing. Pivots you add are the only ones with this; the rig parts keep the game's own animation.";
   g.appendChild(h);
   if (o.mv) { const b = document.createElement("div"); b.className = "btns"; b.appendChild(btn("Clear motion", () => change(() => { delete o.mv; }), "danger")); g.appendChild(b); }
@@ -2146,10 +2219,17 @@ $("exportBtn").addEventListener("click", () => { const blob = new Blob([JSON.str
 $("importBtn").addEventListener("click", () => $("importFile").click());
 $("importFile").addEventListener("change", async e => { const f = e.target.files[0]; if (!f) return; try { const d = JSON.parse(await f.text()); const err = validate(d); if (err) { setStatus(err, "bad"); return; } snapshot(); doc = d; ui.sel = null; markDirty(); render(); } catch (x) { setStatus("not a valid JSON file", "bad"); } e.target.value = ""; });
 $("resetBtn").addEventListener("click", () => { showBanner(CHAR ? "Replace everything with " + charLabel(CHAR) + "'s starting drawing and numbers?" : "Replace everything with the art and numbers that ship in the game?", [["Yes, reset", () => { snapshot(); doc = clone(DEFAULT); ui.sel = null; markDirty(); render(); }], ["Cancel", () => {}]]); });
-$("gridBtn").addEventListener("click", e => { ui.grid = !ui.grid; e.target.classList.toggle("on", ui.grid); renderEdit(); });
+/* what the canvas shows and the snap are remembered between visits (view only: nothing in the drawing depends on them) */
+const VIEW_KEY = "puppet_canvas_view";
+const saveCanvasView = () => { try { localStorage.setItem(VIEW_KEY, JSON.stringify({ grid: ui.grid, handles: ui.handles, outlines: ui.outlines, snap: ui.snap || 0 })); } catch (e) {} };
+try { const sv = JSON.parse(localStorage.getItem(VIEW_KEY) || "null"); if (sv) { ui.grid = sv.grid !== false; ui.handles = sv.handles !== false; ui.outlines = sv.outlines !== false; ui.snap = +sv.snap || 0; } } catch (e) {}
+$("gridBtn").classList.toggle("on", ui.grid); $("handlesBtn").classList.toggle("on", ui.handles); $("outlinesBtn").classList.toggle("on", ui.outlines);
+$("snapSel").value = String(ui.snap || 0); if ($("snapSel").value !== String(ui.snap || 0)) { ui.snap = 0; $("snapSel").value = "0"; }
+$("snapSel").addEventListener("change", () => { ui.snap = +$("snapSel").value || 0; saveCanvasView(); });
+$("gridBtn").addEventListener("click", e => { ui.grid = !ui.grid; e.target.classList.toggle("on", ui.grid); saveCanvasView(); renderEdit(); });
 $("pivotOnlyBtn").addEventListener("click", e => { ui.pivotOnly = !ui.pivotOnly; e.target.classList.toggle("on", ui.pivotOnly); renderInspector(); });
-$("outlinesBtn").addEventListener("click", e => { ui.outlines = !ui.outlines; e.target.classList.toggle("on", ui.outlines); renderEdit(); });
-$("handlesBtn").addEventListener("click", e => { ui.handles = !ui.handles; e.target.classList.toggle("on", ui.handles); renderEdit(); });
+$("outlinesBtn").addEventListener("click", e => { ui.outlines = !ui.outlines; e.target.classList.toggle("on", ui.outlines); saveCanvasView(); renderEdit(); });
+$("handlesBtn").addEventListener("click", e => { ui.handles = !ui.handles; e.target.classList.toggle("on", ui.handles); saveCanvasView(); renderEdit(); });
 $("mirrorViewBtn").addEventListener("click", e => { ui.mirror = !ui.mirror; e.target.classList.toggle("on", ui.mirror); renderEdit(); });
 /* Fit: frame the current drawing's real extent (a gunner is taller and wider than the hero) in the edit canvas. */
 function fitView() {
@@ -2165,6 +2245,16 @@ function fitView() {
   ui.pan = [-(x0 + x1) / 2 * ui.zoom, -(y0 + y1) / 2 * ui.zoom]; renderEdit();
 }
 $("fitBtn").addEventListener("click", fitView);
+/* Zoom to part: frame the selected polygon, picture or pivot (with everything inside it). Its box is read off the screen and turned back into drawing units, so it also works mirrored. */
+$("selZoomBtn").addEventListener("click", () => {
+  const s = ui.sel; if (!s || s.dead) { setStatus("Select a part first", "warn"); return; }
+  const b = edit.__built, elm = isPoly(s.obj) ? b.polys.get(s.obj.poly) : b.groups.get(s.obj.id); if (!elm) return;
+  const r = elm.getBoundingClientRect(), er = edit.getBoundingClientRect(), w = er.width, h = er.height;
+  if (!(r.width + r.height > 0)) { setStatus("That part has nothing to frame yet", "warn"); return; }
+  const x0 = (r.left - er.left - w / 2 - ui.pan[0]) / ui.zoom, x1 = (r.right - er.left - w / 2 - ui.pan[0]) / ui.zoom, y0 = (r.top - er.top - h / 2 - ui.pan[1]) / ui.zoom, y1 = (r.bottom - er.top - h / 2 - ui.pan[1]) / ui.zoom;
+  ui.zoom = Math.min(Math.max(Math.min(w / (Math.max(x1 - x0, 2) * 1.7), h / (Math.max(y1 - y0, 2) * 1.7)), 2), 400);
+  ui.pan = [-(x0 + x1) / 2 * ui.zoom, -(y0 + y1) / 2 * ui.zoom]; renderEdit();
+});
 const zoomBy = f => { const z0 = ui.zoom, z1 = Math.min(Math.max(z0 * f, 2), 400); ui.pan = [ui.pan[0] * z1 / z0, ui.pan[1] * z1 / z0]; ui.zoom = z1; renderEdit(); };
 $("zoomInBtn").addEventListener("click", () => zoomBy(1.4)); $("zoomOutBtn").addEventListener("click", () => zoomBy(1 / 1.4));
 /* touch / pen: two fingers pinch to zoom and drag to pan (one finger or the pen edits as usual) */
