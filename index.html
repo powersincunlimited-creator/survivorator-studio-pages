@@ -3897,12 +3897,18 @@ function rulesEditor(rules, file, opts = {}) {
   const wrap = h("div", {});
   const filter = h("input", { type: "text", placeholder: "filter knobs…", style: "width:260px" });
   const changedOnly = h("input", { type: "checkbox" });
+  const summary = h("span", { class: "dim" }, "");
+  const jump = h("div", { class: "ctl", style: "margin-bottom:10px;gap:5px" });
   const body = h("div", {});
-  wrap.append(h("div", { class: "ctl", style: "margin-bottom:10px" }, filter, h("label", { class: "ctl", style: "gap:5px;cursor:pointer" }, changedOnly, "Changed from the default only")), body);
+  wrap.append(h("div", { class: "ctl", style: "margin-bottom:10px;gap:12px" }, filter, h("label", { class: "ctl", style: "gap:5px;cursor:pointer" }, changedOnly, "Changed from the default only"), summary), jump, body);
   const draw = () => {
-    body.innerHTML = "";
+    body.innerHTML = ""; jump.innerHTML = "";
     const q = filter.value.trim().toLowerCase();
+    const cards = [];
+    let totalSet = 0, areasSet = 0;
     for (const [area, def] of Object.entries(DATA.schema.areas)) {
+      const n = Object.keys(rules[area] || {}).length;
+      if (n) { totalSet += n; areasSet++; }
       const rows = [];
       for (const [knob, spec] of Object.entries(def.knobs)) {
         if (q && !(`${area}.${knob} ${spec.label} ${spec.desc}`.toLowerCase().includes(q))) continue;
@@ -3910,9 +3916,13 @@ function rulesEditor(rules, file, opts = {}) {
         rows.push(knobRow(rules, area, knob, spec, file, draw));
       }
       if (!rows.length) continue;
-      const set = Object.keys(rules[area] || {}).length;
-      body.append(h("details", { class: "card", open: q || changedOnly.checked || set ? true : undefined }, h("summary", {}, def.label, h("span", { class: "dim" }, `  ·  ${rows.length} knobs${set ? `, ${set} changed` : ""}`)), rows));
+      const card = h("details", { class: "card", open: q || changedOnly.checked || n ? true : undefined }, h("summary", {}, def.label, h("span", { class: "dim" }, `  ·  ${rows.length} knobs${n ? `, ${n} changed` : ""}`)), rows,
+        n ? h("div", { class: "ctl", style: "margin-top:8px" }, h("button", { class: "btn small", title: "Put every rule in this area back to its default", onclick: async () => { if (!(await sure(`Put the ${n} changed rule${n === 1 ? "" : "s"} in '${def.label}' back to their defaults?`))) return; delete rules[area]; cleanRules(rules); touch(file); draw(); } }, `↺ Put ${n === 1 ? "it" : "these " + n} back to the default${n === 1 ? "" : "s"}`)) : null);
+      cards.push([def.label, n, card]);
+      body.append(card);
     }
+    summary.textContent = totalSet ? `${totalSet} rule${totalSet === 1 ? "" : "s"} changed from the default, in ${areasSet} area${areasSet === 1 ? "" : "s"}` : "No rule is changed from the default";
+    for (const [label, n, card] of cards) jump.append(h("button", { class: "btn small" + (n ? " primary" : ""), title: "Go to this area", onclick: () => { card.open = true; card.scrollIntoView({ block: "start" }); } }, n ? `${label} · ${n}` : label));
   };
   filter.addEventListener("input", draw);
   changedOnly.addEventListener("change", draw);
