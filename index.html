@@ -4101,7 +4101,7 @@ function tabCurrencies() {
 
 /* The Build game tab: runs tools/build_game.py on this computer through the build helper (py tools/build_server.py), and shows its log.
    A web page cannot start programs, so the helper (a small local server, 127.0.0.1 only) does it; without it the tab says how to start it. */
-const BLD = { port: Number(localStorage.getItem("studio_build_port")) || 8765, st: null, err: "", lines: [], next: 0, running: false, exit: null, title: "", timer: null, opts: { sync: true, check: true, prepare: false, debug: false }, pack: null };
+const BLD = { port: Number(localStorage.getItem("studio_build_port")) || 8765, st: null, err: "", lines: [], next: 0, running: false, exit: null, title: "", timer: null, opts: { sync: true, check: true, prepare: false, debug: false, bundle: false }, pack: null };
 const bldUrl = p => `http://127.0.0.1:${BLD.port}${p}`;
 async function bldCall(path, body) {
   const r = await fetch(bldUrl(path), body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -4157,6 +4157,10 @@ function tabBuild() {
   const busy = st.job.running || BLD.running;
   if (!BLD.pack || !st.packs.some(p => p.id === BLD.pack)) BLD.pack = (st.packs.find(p => p.id === S.pack) || st.packs[0] || {}).id;
   const info = st.packs.find(p => p.id === BLD.pack) || {};
+  const bundle = BLD.opts.bundle, rn = st.runner || {};
+  const exeOf = bundle ? info.bundle : info.exe, builtOf = bundle ? info.bundle_built : info.built;
+  const mode = bundle ? "bundle" : undefined;
+  const canMake = bundle ? (rn.exists || st.templates) : (BLD.opts.prepare || st.templates);
   const opt = (key, label, tip) => h("label", { style: "display:flex;gap:6px;align-items:center", title: tip }, h("input", { type: "checkbox", checked: BLD.opts[key], disabled: busy, onchange: ev => { BLD.opts[key] = ev.target.checked; renderMain(); } }), label);
   const packSel = h("select", { disabled: busy, onchange: ev => { BLD.pack = ev.target.value; renderMain(); } }, st.packs.map(p => h("option", { value: p.id }, p.id === p.name ? p.id : `${p.id} (${p.name})`)));
   packSel.value = BLD.pack || "";
@@ -4168,23 +4172,26 @@ function tabBuild() {
   const unsaved = S.dirty.size;
   wrap.append(h("div", { class: "card" },
     h("div", { class: "ctl", style: "gap:10px;align-items:center;flex-wrap:wrap" }, h("b", {}, "Pack"), packSel,
-      info.exe ? h("span", { class: "hint dim" }, `last build: ${info.exe}, ${(info.size / 1048576).toFixed(0)} MB, ${bldAgo(info.built)}`) : h("span", { class: "hint dim" }, "not built yet")),
+      exeOf ? h("span", { class: "hint dim" }, `last ${bundle ? "folder" : "build"}: ${exeOf}${bundle ? "" : `, ${(info.size / 1048576).toFixed(0)} MB`}, ${bldAgo(builtOf)}`) : h("span", { class: "hint dim" }, "not built yet")),
     h("div", { style: "display:grid;gap:6px;margin:10px 0" },
       opt("sync", "Pull the latest from the Studio's cloud first", "On: the build uses what you have SAVED in the Studio. Off: it builds from the pack files already in the repo."),
-      opt("check", "Check the pack (validator and a headless play-through)", "Off: skips both checks"),
-      opt("prepare", "Only sync and check, don't build the exe", "A quick test of the pack; needs no export templates"),
-      opt("debug", "Debug build (the game opens with a console window)", "For hunting a problem in the exe")),
+      opt("check", bundle ? "Validate the pack" : "Check the pack (validator and a headless play-through)", bundle ? "Off: skips the validator" : "Off: skips both checks"),
+      opt("bundle", "Make it the runner way: a folder with the game's exe and its content", "A copy of the prebuilt runner exe under the game's name, with the pack, pictures and puppets in a content folder beside it. Takes seconds and needs no Godot editor or export templates to make (only the runner, built once). Without this the pack is baked into one exe, which needs the editor and the templates."),
+      bundle ? null : opt("prepare", "Only sync and check, don't build the exe", "A quick test of the pack; needs no export templates"),
+      bundle ? null : opt("debug", "Debug build (the game opens with a console window)", "For hunting a problem in the exe")),
+    bundle ? h("p", { class: "hint dim" }, rn.exists ? `The runner: ${(rn.size / 1048576).toFixed(0)} MB, built ${bldAgo(rn.built)}. Export it again when the engine's code changes (a pack's content never needs it).` : "The runner (the engine with no game inside) is not built yet: the first make exports it, which needs the Godot editor and the export templates.") : null,
     unsaved && BLD.opts.sync ? h("p", { class: "hint", style: "color:var(--warn)" }, `You have ${unsaved} unsaved change${unsaved > 1 ? "s" : ""} (${[...S.dirty].join(", ")}). The build pulls what is SAVED, so save first (the Save button above) or those edits will not be in the exe.`) : null,
     h("div", { class: "ctl", style: "gap:8px;margin-top:6px" },
-      h("button", { class: "btn primary", disabled: busy || !BLD.pack || (!BLD.opts.prepare && !st.templates), title: !st.templates && !BLD.opts.prepare ? "Install the export templates first" : null,
-        onclick: () => bldStart("/build", { pack: BLD.pack, no_sync: !BLD.opts.sync, no_check: !BLD.opts.check, prepare_only: BLD.opts.prepare, debug: BLD.opts.debug }, `build ${BLD.pack}`) }, BLD.opts.prepare ? "Check the pack" : "Build the exe"),
+      h("button", { class: "btn primary", disabled: busy || !BLD.pack || !canMake, title: !canMake ? "Install the export templates first" : null,
+        onclick: () => bldStart("/build", { pack: BLD.pack, mode, no_sync: !BLD.opts.sync, no_check: !BLD.opts.check, prepare_only: !bundle && BLD.opts.prepare, debug: !bundle && BLD.opts.debug }, `build ${BLD.pack}`) }, bundle ? "Make the game folder" : BLD.opts.prepare ? "Check the pack" : "Build the exe"),
+      bundle ? h("button", { class: "btn", disabled: busy || !st.templates, title: !st.templates ? "Needs the export templates" : "Export the engine with no game inside", onclick: () => bldStart("/build-runner", {}, "export the runner") }, rn.exists ? "Re-export the runner" : "Export the runner") : null,
       h("button", { class: "btn danger", disabled: !busy, onclick: async () => { try { await bldCall("/cancel", {}); } catch (e) { toast(String(e.message || e)); } } }, "Stop"),
-      h("button", { class: "btn", disabled: busy || !info.exe, onclick: async () => { try { await bldCall("/run", { pack: BLD.pack }); } catch (e) { toast(String(e.message || e)); } } }, "Play the exe"),
-      h("button", { class: "btn", disabled: !info.exe, onclick: async () => { try { await bldCall("/reveal", { pack: BLD.pack }); } catch (e) { toast(String(e.message || e)); } } }, "Open the folder"))));
+      h("button", { class: "btn", disabled: busy || !exeOf, onclick: async () => { try { await bldCall("/run", { pack: BLD.pack, mode }); } catch (e) { toast(String(e.message || e)); } } }, "Play the exe"),
+      h("button", { class: "btn", disabled: !exeOf, onclick: async () => { try { await bldCall("/reveal", { pack: BLD.pack, mode }); } catch (e) { toast(String(e.message || e)); } } }, "Open the folder"))));
 
   const head = busy ? `Running: ${st.job.title || BLD.title}…` : BLD.exit === null || BLD.exit === undefined ? (BLD.lines.length ? "Log" : "Log (nothing has run yet)") : (BLD.exit === 0 ? "✓ Finished: " : "✗ Stopped: ") + BLD.title;
   const pre = h("pre", { id: "bldLog", style: "max-height:420px;overflow:auto;padding:10px;background:var(--panel2);border-radius:6px;font-size:12px;white-space:pre-wrap;margin:6px 0 0" }, BLD.lines.join("\n"));
-  wrap.append(h("div", { class: "card" }, h("b", {}, head), pre, h("p", { class: "hint dim", style: "margin-top:8px" }, "The exe goes to build/<pack>/ in the game's folder. Its save files live in %APPDATA%/Survivorator/<pack>/, apart from the editor's.")));
+  wrap.append(h("div", { class: "card" }, h("b", {}, head), pre, h("p", { class: "hint dim", style: "margin-top:8px" }, bundle ? "The folder goes to build/<pack>/bundle/ (zip it to hand the game out). Its save files live in %APPDATA%/Survivorator/Games/<game id>/." : "The exe goes to build/<pack>/ in the game's folder. Its save files live in %APPDATA%/Survivorator/<pack>/, apart from the editor's.")));
   setTimeout(() => { pre.scrollTop = pre.scrollHeight; }, 0);
   if (st.job.running && !BLD.timer) bldPoll();   // a job started before this page opened
   return wrap;
