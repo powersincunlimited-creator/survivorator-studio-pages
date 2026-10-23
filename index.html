@@ -4101,7 +4101,7 @@ function tabCurrencies() {
 
 /* The Build game tab: runs tools/build_game.py on this computer through the build helper (py tools/build_server.py), and shows its log.
    A web page cannot start programs, so the helper (a small local server, 127.0.0.1 only) does it; without it the tab says how to start it. */
-const BLD = { port: Number(localStorage.getItem("studio_build_port")) || 8765, st: null, err: "", lines: [], next: 0, running: false, exit: null, title: "", timer: null, opts: { sync: true, check: true, prepare: false, debug: false, bundle: false }, pack: null };
+const BLD = { port: Number(localStorage.getItem("studio_build_port")) || 8765, st: null, err: "", lines: [], next: 0, running: false, exit: null, title: "", timer: null, opts: { sync: true, check: true, prepare: false, debug: false, bundle: false, zip: false }, pack: null };
 const bldUrl = p => `http://127.0.0.1:${BLD.port}${p}`;
 async function bldCall(path, body) {
   const r = await fetch(bldUrl(path), body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -4177,13 +4177,14 @@ function tabBuild() {
       opt("sync", "Pull the latest from the Studio's cloud first", "On: the build uses what you have SAVED in the Studio. Off: it builds from the pack files already in the repo."),
       opt("check", bundle ? "Validate the pack" : "Check the pack (validator and a headless play-through)", bundle ? "Off: skips the validator" : "Off: skips both checks"),
       opt("bundle", "Make it the runner way: a folder with the game's exe and its content", "A copy of the prebuilt runner exe under the game's name, with the pack, pictures and puppets in a content folder beside it. Takes seconds and needs no Godot editor or export templates to make (only the runner, built once). Without this the pack is baked into one exe, which needs the editor and the templates."),
+      bundle ? opt("zip", "Also zip the folder (to hand the game out)", "build/<pack>/<Game name>-<version or date>.zip") : null,
       bundle ? null : opt("prepare", "Only sync and check, don't build the exe", "A quick test of the pack; needs no export templates"),
       bundle ? null : opt("debug", "Debug build (the game opens with a console window)", "For hunting a problem in the exe")),
     bundle ? h("p", { class: "hint dim" }, rn.exists ? `The runner: ${(rn.size / 1048576).toFixed(0)} MB, built ${bldAgo(rn.built)}. Export it again when the engine's code changes (a pack's content never needs it).` : "The runner (the engine with no game inside) is not built yet: the first make exports it, which needs the Godot editor and the export templates.") : null,
     unsaved && BLD.opts.sync ? h("p", { class: "hint", style: "color:var(--warn)" }, `You have ${unsaved} unsaved change${unsaved > 1 ? "s" : ""} (${[...S.dirty].join(", ")}). The build pulls what is SAVED, so save first (the Save button above) or those edits will not be in the exe.`) : null,
     h("div", { class: "ctl", style: "gap:8px;margin-top:6px" },
       h("button", { class: "btn primary", disabled: busy || !BLD.pack || !canMake, title: !canMake ? "Install the export templates first" : null,
-        onclick: () => bldStart("/build", { pack: BLD.pack, mode, no_sync: !BLD.opts.sync, no_check: !BLD.opts.check, prepare_only: !bundle && BLD.opts.prepare, debug: !bundle && BLD.opts.debug }, `build ${BLD.pack}`) }, bundle ? "Make the game folder" : BLD.opts.prepare ? "Check the pack" : "Build the exe"),
+        onclick: () => bldStart("/build", { pack: BLD.pack, mode, no_sync: !BLD.opts.sync, no_check: !BLD.opts.check, prepare_only: !bundle && BLD.opts.prepare, debug: !bundle && BLD.opts.debug, zip: bundle && BLD.opts.zip }, `build ${BLD.pack}`) }, bundle ? "Make the game folder" : BLD.opts.prepare ? "Check the pack" : "Build the exe"),
       bundle ? h("button", { class: "btn", disabled: busy || !st.templates, title: !st.templates ? "Needs the export templates" : "Export the engine with no game inside", onclick: () => bldStart("/build-runner", {}, "export the runner") }, rn.exists ? "Re-export the runner" : "Export the runner") : null,
       h("button", { class: "btn danger", disabled: !busy, onclick: async () => { try { await bldCall("/cancel", {}); } catch (e) { toast(String(e.message || e)); } } }, "Stop"),
       h("button", { class: "btn", disabled: busy || !exeOf, onclick: async () => { try { await bldCall("/run", { pack: BLD.pack, mode }); } catch (e) { toast(String(e.message || e)); } } }, "Play the exe"),
