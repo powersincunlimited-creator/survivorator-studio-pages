@@ -272,9 +272,11 @@ function makeLocalStore(base) {
   const collectionGroup = (_db, id) => ({ __kind: "group", id });
   const makeSnap = (path, data, exists) => ({ id: path.split("/").pop(), ref: docRef(path), exists: () => exists, data: () => (exists ? unpack(data) : undefined), metadata: { hasPendingWrites: false, fromCache: false } });
 
-  async function getDoc(ref) { const j = await post("get", { path: ref.path }); return makeSnap(ref.path, j.data, !!j.exists); }
+  const noStore = path => path.split("/")[0] === "presence";   // "who else has this open": nobody else is on one computer, so it is never stored
+  async function getDoc(ref) { if (noStore(ref.path)) return makeSnap(ref.path, null, false); const j = await post("get", { path: ref.path }); return makeSnap(ref.path, j.data, !!j.exists); }
   const needsOld = v => (v && typeof v === "object" && v[SV] && v[SV] !== "ts") || (v && typeof v === "object" && !(v instanceof Timestamp) && Object.values(v).some(needsOld));
   async function setDoc(ref, data, opts) {
+    if (noStore(ref.path)) return;
     let old = null;
     if ((opts && opts.merge) || needsOld(data)) { const j = await post("get", { path: ref.path }); old = j.exists ? j.data : null; }   // the old value only when it matters: a chunk of a picture is nearly 1 MB
     let next = pack(data, old);
@@ -282,7 +284,7 @@ function makeLocalStore(base) {
     await post("set", { path: ref.path, data: next });
   }
   async function addDoc(col, data) { const ref = doc(col); await setDoc(ref, data); return ref; }
-  async function deleteDoc(ref) { await post("delete", { path: ref.path }); }
+  async function deleteDoc(ref) { if (noStore(ref.path)) return; await post("delete", { path: ref.path }); }
   const orderBy = (field, dir) => ({ __c: "order", field, dir: dir === "desc" ? -1 : 1 });
   const limit = n => ({ __c: "limit", n });
   const query = (base, ...cons) => ({ __kind: "query", base, cons });
@@ -290,7 +292,8 @@ function makeLocalStore(base) {
   async function fetchDocs(q) {
     const base = q.__kind === "query" ? q.base : q, cons = q.__kind === "query" ? q.cons : [];
     let rows;
-    if (base.__kind === "group") rows = (await post("group", { name: base.id })).docs;
+    if (base.__kind === "collection" && noStore(base.path)) rows = [];
+    else if (base.__kind === "group") rows = (await post("group", { name: base.id })).docs;
     else rows = (await post("list", { path: base.path })).docs;
     let snaps = rows.map(d => makeSnap(d.path, d.data, true));
     for (const c of cons.filter(c => c.__c === "order")) {
@@ -356,11 +359,25 @@ function desktopBadge(info) {
     b.id = "deskBadge"; b.title = info.data_dir; b.textContent = "● Saved on this computer · " + name(info.data_dir);
     b.onclick = () => dialog();
     document.body.append(b);
+    if (!info.welcomed && !sessionStorage.getItem("deskWelcomeShown")) { try { sessionStorage.setItem("deskWelcomeShown", "1"); } catch (e) { /* shown again on the next page: harmless */ } welcome(); }
+    function welcome() {
+      const ov = document.createElement("div"); ov.id = "deskDlg";
+      const box = document.createElement("div"); box.className = "box"; ov.append(box);
+      const mk = (tag, text, cls) => { const e = document.createElement(tag); e.textContent = text; if (cls) e.className = cls; return e; };
+      const ul = document.createElement("ul"); ul.style.paddingLeft = "18px";
+      for (const t of ["Everything you make here is saved on this computer, in the folder below. Nothing is sent anywhere. To back it up, copy that folder.",
+        "Two example packs are ready to open and change. Make the game (Build game tab) turns a pack into a game you can play and hand out.",
+        "Export… and Import… (next to the pack name) save a pack as one file to share it or move it to another computer.",
+        "The studios in the top bar (Packs, Weapons & Shots, Puppets, Arena) all use the same data."]) ul.append(mk("li", t));
+      box.append(mk("b", "Welcome to Survivorator Studio"), mk("p", "Make your own survivors-style game: heroes, powers, enemies, bosses, arenas and sounds, then turn it into a program anyone can run.", "dim"), ul, mk("code", info.data_dir));
+      const ok = mk("button", "Got it"); ok.onclick = () => { fetch("/api/welcomed", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); ov.remove(); };
+      box.append(ok); document.body.append(ov);
+    }
     function dialog() {
       const ov = document.createElement("div"); ov.id = "deskDlg";
       const box = document.createElement("div"); box.className = "box"; ov.append(box);
       const mk = (tag, text, cls) => { const e = document.createElement(tag); e.textContent = text; if (cls) e.className = cls; return e; };
-      box.append(mk("b", "Your data is on this computer"), mk("p", "Packs, pictures, recordings and puppets are saved in this folder (nothing is sent anywhere). Back it up by copying the folder, or share one pack with Export… in the pack editor.", "dim"), mk("code", info.data_dir));
+      box.append(mk("b", "Your data is on this computer"), mk("span", "   Survivorator Studio " + (info.version || ""), "dim"), mk("p", "Packs, pictures, recordings and puppets are saved in this folder (nothing is sent anywhere). Back it up by copying the folder, or share one pack with Export… in the pack editor.", "dim"), mk("code", info.data_dir));
       const open = mk("button", "Open the folder"); open.onclick = () => fetch("/api/workspace/reveal", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
       box.append(open, mk("p", "Use another folder (it is made if it does not exist; a new one starts with the example packs):", "dim"));
       const inp = document.createElement("input"); inp.value = info.data_dir; inp.spellcheck = false; box.append(inp);
