@@ -204,7 +204,7 @@ dialog::backdrop { background: rgba(0,0,0,0.6); }
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
 import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
-import { getFirestore, collection, doc as fsDoc, getDoc, setDoc, addDoc, getDocs, deleteDoc, query, orderBy, limit, serverTimestamp }
+import { getFirestore, collection, doc as fsDoc, getDoc, setDoc, addDoc, getDocs, deleteDoc, query, orderBy, limit, serverTimestamp, arrayUnion }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
 /* The shared IMAGE LIBRARY of the art studios: upload a picture (png / jpg / webp / gif), cut out the part you want (crop, remove the background, erase / restore with a brush, lasso), keep its PNG
@@ -1358,9 +1358,9 @@ async function switchArena(id, startDoc, flush = true) {
   useArenaIdentity(id);
   await loadCurrentArena(startDoc); fillArenaPicker(); showArena(); render(); fitArena(); setStatus();
 }
-async function packNames() { if (!cloudOk) return []; try { return (await withTimeout(getDocs(collection(db, "packs")), 6000, "The pack list")).docs.map(d => d.id).sort(); } catch (e) { console.error(e); return []; } }
-async function loadPackArena(pack) {
-  const snap = await withTimeout(getDoc(fsDoc(db, "packs", pack, "files", "arena")), 15000, "Reading the pack"); if (!snap.exists()) throw new Error("Pack " + pack + " has no arena file yet");
+async function packInfo() { if (!cloudOk) return []; try { return (await withTimeout(getDocs(collection(db, "packs")), 6000, "The pack list")).docs.map(d => ({ id: d.id, arenas: Array.isArray(d.data().arenas) ? d.data().arenas : [] })).sort((a, b) => a.id < b.id ? -1 : 1); } catch (e) { console.error(e); return []; } }
+async function loadPackArena(pack, extra) {   // extra = the id of one of the pack's extra arenas, or "" for its main arena
+  const snap = await withTimeout(getDoc(fsDoc(db, "packs", pack, "files", extra ? "arena_" + extra : "arena")), 15000, "Reading the pack"); if (!snap.exists()) throw new Error("Pack " + pack + " has no " + (extra ? "arena " + extra : "arena file") + " yet");
   const d = JSON.parse(snap.data().json), err = validate(d); if (err) throw new Error("The arena in " + pack + " is not usable: " + err); return d;
 }
 async function loadArenaDoc(id) {   // another arena's saved copy (or its unsaved draft in this browser)
@@ -1376,7 +1376,7 @@ async function createArena(label, from) {
   let start;
   if (from === "@current") start = clone(doc); else if (from === "@default") start = clone(DEFAULT); else if (from === "@empty") { start = clone(DEFAULT); start.props = []; }
   else if (from.startsWith("arena:")) start = await loadArenaDoc(from.slice(6));
-  else if (from.startsWith("pack:")) start = await loadPackArena(from.slice(5));
+  else if (from.startsWith("pack:")) { const [pk, ex] = from.slice(5).split("/"); start = await loadPackArena(pk, ex || ""); }
   else throw new Error("Pick what to start from");
   start.name = clean;
   ARENAS.push({ id, label: clean, from, created: Date.now() }); await saveArenaRegistry();
@@ -1389,13 +1389,18 @@ async function renameArena(label) {
   if (ARENA === "") DEFAULT_LABEL = clean; else arenaEntry(ARENA).label = clean;
   doc.name = clean; await saveArenaRegistry(); fillArenaPicker(); showArena(); markDirty();
 }
-async function usePackArena(pack) {
+async function usePackArena(pack, slot, newId) {   // slot: "main" (arena.json), an extra arena's id (replace it), or "@new" with newId
+  let extra = slot === "main" ? "" : slot === "@new" ? (newId || "").trim() : slot;
+  if (slot === "@new" && !/^[a-z][a-z0-9_]{1,28}$/.test(extra)) throw new Error("An arena id is 2-29 characters: lower-case letters, digits and _, starting with a letter");
+  if (extra === "main") throw new Error("'main' is the pack's main arena: pick that slot instead");
   const text = JSON.stringify(doc), bytes = new Blob([text]).size;
   if (bytes > 1000000) throw new Error("This arena is " + Math.round(bytes / 1024) + " KB: more than a pack file can hold in the cloud (about 1 MB). Use File > Export JSON and put the file at packs/" + pack + "/arena.json by hand.");
   const payload = { json: text, updated: serverTimestamp(), by: nickname || "Anonymous" };
-  await withTimeout(setDoc(fsDoc(db, "packs", pack, "files", "arena"), payload), 30000, "Writing the pack");
-  try { await withTimeout(addDoc(collection(db, "packs", pack, "files", "arena", "history"), payload), 10000); } catch (e) { /* history is a nicety */ }
-  await withTimeout(setDoc(fsDoc(db, "packs", pack), { name: pack, updated: serverTimestamp() }), 10000, "Writing the pack");
+  const fname = extra ? "arena_" + extra : "arena";
+  await withTimeout(setDoc(fsDoc(db, "packs", pack, "files", fname), payload), 30000, "Writing the pack");
+  try { await withTimeout(addDoc(collection(db, "packs", pack, "files", fname, "history"), payload), 10000); } catch (e) { /* history is a nicety */ }
+  await withTimeout(setDoc(fsDoc(db, "packs", pack), extra ? { name: pack, updated: serverTimestamp(), arenas: arrayUnion(extra) } : { name: pack, updated: serverTimestamp() }, { merge: true }), 10000, "Writing the pack");
+  return fname;
 }
 async function renderArenaDialog(msg) {
   const body = $("adBody"); body.innerHTML = "";
@@ -1405,14 +1410,14 @@ async function renderArenaDialog(msg) {
   const select = () => { const x = document.createElement("select"); x.style.cssText = "background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:5px 7px"; return x; };
   const button = (t, fn, cls) => { const b = document.createElement("button"); b.type = "button"; b.textContent = t; if (cls) b.className = cls; b.addEventListener("click", async () => { b.disabled = true; b.textContent = "Working…"; try { await fn(); } catch (e) { console.error(e); renderArenaDialog({ bad: true, text: e.message || String(e) }); } }); return b; };
   if (msg) { const m = document.createElement("div"); m.className = "pill " + (msg.bad ? "bad" : "ok"); m.style.whiteSpace = "normal"; m.textContent = msg.text; body.appendChild(m); }
-  const packs = await packNames();
+  const packs = await packInfo();
   // 1. new arena / save as
   const nw = document.createElement("div"); nw.style.cssText = "display:grid;gap:6px";
   const name = input("name, e.g. Castle courtyard");
   const from = select(), addOpt = (v, t) => { const o = document.createElement("option"); o.value = v; o.textContent = t; from.appendChild(o); };
   addOpt("@current", "start from: this arena as it is now (Save as)"); addOpt("@default", "start from: the arena that ships in the game"); addOpt("@empty", "start from: an empty arena (the size and camera margins, no props)");
   [{ id: "", label: arenaLabel("") }, ...ARENAS].forEach(e => { if (e.id !== ARENA) addOpt("arena:" + e.id, "start from: " + e.label); });
-  packs.forEach(pk => addOpt("pack:" + pk, "start from: the arena in pack " + pk));
+  packs.forEach(pk => { addOpt("pack:" + pk.id, "start from: the main arena of pack " + pk.id); pk.arenas.forEach(x => addOpt("pack:" + pk.id + "/" + x, "start from: arena " + x + " of pack " + pk.id)); });
   nw.append(lab("Name", name), lab("Start from", from), button("Create and open", async () => { const id = await createArena(name.value, from.value); $("arenaDlg").close(); setStatus("Created " + arenaLabel(id), "ok"); }, "primary"));
   sec("New arena / Save as", nw);
   // 2. this arena: rename
@@ -1425,9 +1430,13 @@ async function renderArenaDialog(msg) {
   if (!cloudOk) { const n = document.createElement("p"); n.className = "hint"; n.textContent = "Packs live in the cloud: connect (no ?offline) to use this arena in one."; pb.appendChild(n); }
   else if (!packs.length) { const n = document.createElement("p"); n.className = "hint"; n.textContent = "There are no packs in the cloud yet."; pb.appendChild(n); }
   else {
-    const ps = select(); packs.forEach(pk => { const o = document.createElement("option"); o.value = pk; o.textContent = pk; ps.appendChild(o); });
-    const hint = document.createElement("p"); hint.className = "hint"; hint.textContent = "Puts a copy of this arena" + (dirty ? " (with your unsaved edits)" : "") + " into the pack: its arena file is replaced. To play it: py tools/studio/sync_pack.py pull <pack>. Later edits here do not change the pack until you do this again.";
-    pb.append(lab("Pack", ps), hint, button("Use this arena in the pack", () => new Promise((res, rej) => showBanner("Replace the arena of pack " + ps.value + " with " + arenaLabel(ARENA) + "?", [["Yes, replace it", async () => { try { await usePackArena(ps.value); renderArenaDialog({ text: "Pack " + ps.value + " now has this arena. Pull it into the game with sync_pack.py pull " + ps.value }); res(); } catch (e) { rej(e); } }], ["Cancel", () => { renderArenaDialog(); res(); }]]))));
+    const ps = select(); packs.forEach(pk => { const o = document.createElement("option"); o.value = pk.id; o.textContent = pk.id; ps.appendChild(o); });
+    const slot = select(), idBox = input("id for the new arena, e.g. dungeon"), idLab = lab("New arena id", idBox);
+    const fillSlots = () => { const pk = packs.find(x => x.id === ps.value) || { arenas: [] }; slot.innerHTML = ""; const add = (v, t) => { const o = document.createElement("option"); o.value = v; o.textContent = t; slot.appendChild(o); };
+      add("main", "the pack's main arena (replaces arena.json)"); pk.arenas.forEach(x => add(x, "its extra arena " + x + " (replaces it)")); add("@new", "a new extra arena, for the pack's schedule…"); idLab.style.display = slot.value === "@new" ? "grid" : "none"; };
+    ps.addEventListener("change", fillSlots); slot.addEventListener("change", () => { idLab.style.display = slot.value === "@new" ? "grid" : "none"; }); fillSlots();
+    const hint = document.createElement("p"); hint.className = "hint"; hint.textContent = "Puts a copy of this arena" + (dirty ? " (with your unsaved edits)" : "") + " into the pack. A pack has one main arena and any number of extra ones; the Main Studio's Arenas tab says which wave is played in which. To play it: py tools/studio/sync_pack.py pull <pack>. Later edits here do not change the pack until you do this again.";
+    pb.append(lab("Pack", ps), lab("Put it in", slot), idLab, hint, button("Use this arena in the pack", () => new Promise((res, rej) => showBanner("Put " + arenaLabel(ARENA) + " into pack " + ps.value + " as " + (slot.value === "main" ? "its main arena (replacing the one it has)" : slot.value === "@new" ? "the new extra arena " + idBox.value : "its extra arena " + slot.value + " (replacing it)") + "?", [["Yes, do it", async () => { try { const fname = await usePackArena(ps.value, slot.value, idBox.value); renderArenaDialog({ text: "Pack " + ps.value + " now has this arena as " + fname + ". Pull it into the game with sync_pack.py pull " + ps.value }); res(); } catch (e) { rej(e); } }], ["Cancel", () => { renderArenaDialog(); res(); }]]))));
   }
   sec("Packs", pb);
   // 4. delete

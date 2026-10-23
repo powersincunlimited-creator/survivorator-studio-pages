@@ -419,12 +419,32 @@ function validatePack(pack) {
   if (typeof spec !== "string") err("game.json", "preset must be a name (or names joined by +)");
   else for (const n of spec.split("+").filter(Boolean)) if (!(n in presets) && !(n in library)) err("game.json", `preset '${n}' is not one of the pack's presets or the shared library (${Object.keys(library).join(", ")})`);
 
-  const ar = pack.arena;
-  const sz = ar.size;
-  if (!(Array.isArray(sz) && sz.length === 2 && sz.every(x => isNum(x) && x >= 500))) err("arena.json", "size must be [width, height], each at least 500");
-  if (!Array.isArray(ar.props)) err("arena.json", "props must be a list");
-  if (!isObj(num(ar.camera_margin, {}))) err("arena.json", "camera_margin must be an object");
-  else if (Array.isArray(sz) && sz.length === 2) for (const prop of ar.props || []) if (!Array.isArray(prop.parts)) err("arena.json", `prop '${prop.id}' has no parts list`);
+  const checkArena = (where, ar) => {
+    const sz = ar.size;
+    if (!(Array.isArray(sz) && sz.length === 2 && sz.every(x => isNum(x) && x >= 500))) err(where, "size must be [width, height], each at least 500");
+    if (!Array.isArray(ar.props)) err(where, "props must be a list");
+    if (!isObj(num(ar.camera_margin, {}))) err(where, "camera_margin must be an object");
+    else if (Array.isArray(sz) && sz.length === 2) for (const prop of ar.props || []) if (!Array.isArray(prop.parts)) err(where, `prop '${prop.id}' has no parts list`);
+  };
+  checkArena("arena.json", pack.arena);
+  const extraArenas = Object.keys(pack).filter(k => /^arena_[a-z][a-z0-9_]*$/.test(k) && isObj(pack[k])).map(k => k.slice(6)).sort();   // the extra arenas, arena_<id>.json
+  for (const xid of extraArenas) checkArena(`arena_${xid}.json`, pack["arena_" + xid]);
+  if (pack.arenas !== undefined && pack.arenas !== null) {
+    const sch = pack.arenas;
+    if (!isObj(sch) || !Array.isArray(num(sch.schedule, []))) err("arenas.json", "must be an object with a schedule list");
+    else {
+      const waves = [];
+      (sch.schedule || []).forEach((e, i) => {
+        const w = `schedule entry ${i + 1}`;
+        if (!isObj(e)) { err("arenas.json", `${w} must be an object {arena, from_wave}`); return; }
+        if (e.arena !== "main" && !extraArenas.includes(e.arena)) err("arenas.json", `${w}: arena ${pyRepr(e.arena)} is not 'main' or an arena file (arena_<id>.json) of this pack`);
+        const fw = e.from_wave;
+        if (typeof fw !== "number" || !Number.isInteger(fw) || fw < 1) err("arenas.json", `${w}: from_wave must be a whole number, 1 or more`);
+        else waves.push(fw);
+      });
+      if (waves.length !== new Set(waves).size) err("arenas.json", "two entries start on the same wave");
+    }
+  }
 
   const puppets = new Set(pack.puppets.puppets || []);
   const powerIds = [];
@@ -3776,6 +3796,77 @@ function tabMeta() {
   return wrap;
 }
 
+// ================================================================ ARENAS
+/* A pack has a MAIN arena (arena.json) and can have more (arena_<id>.json); arenas.json holds the schedule: {schedule: [{arena: "main" | <id>, from_wave}]}. The drawing is done in the Arena Studio,
+   which puts an arena into the pack ("Use this arena in the pack"); this tab shows what the pack has and says which arena each wave is played in. Same rule as the game (ArenaRoster):
+   the entry with the highest from_wave that is not above the wave wins (a later entry wins a tie); before the first entry, and with no schedule, it is the main arena. */
+const extraArenaIds = () => Object.keys(S.files).filter(k => /^arena_[a-z][a-z0-9_]*$/.test(k) && S.files[k] && typeof S.files[k] === "object").map(k => k.slice(6)).sort();
+const arenaFile = id => id === "main" ? S.files.arena : S.files["arena_" + id];
+const arenaName = id => { const a = arenaFile(id); return (a && a.name) ? a.name : (id === "main" ? "Main arena" : id); };
+function arenaForWave(w) {
+  let pick = "main";
+  for (const e of ((S.files.arenas || {}).schedule || []).slice().sort((a, b) => (a.from_wave || 1) - (b.from_wave || 1))) if ((e.from_wave || 1) <= w) pick = e.arena;
+  return pick === "main" || arenaFile(pick) ? pick : "main";
+}
+/* "Waves 1 to 5: Castle gates, 6 on: Dungeon" for the first `upto` waves */
+function arenaRuns(upto) {
+  const runs = []; let prev = null;
+  for (let w = 1; w <= upto; w++) { const id = arenaForWave(w); if (!prev || prev.id !== id) { prev = { id, from: w, to: w }; runs.push(prev); } else prev.to = w; }
+  return runs;
+}
+async function deleteArenaFile(id) {
+  const name = "arena_" + id;
+  const hist = await getDocs(collection(db, "packs", S.pack, "files", name, "history")).catch(() => ({ docs: [] }));
+  for (const d of hist.docs) { try { await deleteDoc(d.ref); } catch (e) { /* the history is a nicety */ } }
+  await deleteDoc(doc(db, "packs", S.pack, "files", name));
+  delete S.files[name]; delete S.orig[name]; delete S.meta[name]; S.dirty.delete(name);
+  await setDoc(doc(db, "packs", S.pack), { name: S.pack, updated: serverTimestamp(), arenas: extraArenaIds() });
+}
+function tabArenas() {
+  const wrap = h("div", {}, h("h2", {}, "Arenas"), h("p", { class: "lead" }, "Where the waves are fought. A pack has a main arena and can have more; the schedule says which one each wave is played in. The arenas themselves are drawn in the Arena Studio, which also puts them into this pack."));
+  const f = "arenas";
+  const extras = extraArenaIds(), all = ["main", ...extras];
+  wrap.append(problemBlock([...problemsFor("arenas", ""), ...all.flatMap(id => problemsFor(id === "main" ? "arena" : "arena_" + id, ""))]));
+  const sch = () => { S.files.arenas = S.files.arenas || { schedule: [] }; S.files.arenas.schedule = S.files.arenas.schedule || []; return S.files.arenas.schedule; };
+  const used = new Set(((S.files.arenas || {}).schedule || []).map(e => e.arena));
+  // ---- the arenas this pack has
+  const list = h("div", {});
+  for (const id of all) {
+    const a = arenaFile(id), sz = (a && a.size) || [];
+    list.append(row(id === "main" ? "main arena" : id, [
+      h("span", {}, arenaName(id)),
+      h("span", { class: "unit" }, `${sz[0] || "?"} × ${sz[1] || "?"} px · ${((a && a.props) || []).length} props${used.has(id) ? " · in the schedule" : id === "main" ? " · where no change applies" : " · not scheduled"}`),
+      id === "main" ? null : h("button", { class: "btn small danger", title: "Remove this arena from the pack (its copy in the Arena Studio is not touched)", onclick: async () => {
+        const refs = ((S.files.arenas || {}).schedule || []).filter(e => e.arena === id).length;
+        if (!(await sure(`Remove the arena '${id}' from this pack?` + (refs ? ` The ${refs} schedule entr${refs === 1 ? "y" : "ies"} that use${refs === 1 ? "s" : ""} it go too.` : "")))) return;
+        if (refs) { S.files.arenas.schedule = S.files.arenas.schedule.filter(e => e.arena !== id); touch(f); }
+        try { await deleteArenaFile(id); toast(`Removed ${id}. To clear it from the game: py tools/studio/sync_pack.py pull ${S.pack}`, 6000); } catch (e) { toast("Could not remove it: " + (e.code || e.message), 6000); }
+        renderMain();
+      } }, "Remove")]));
+  }
+  wrap.append(h("details", { class: "card", open: true }, h("summary", {}, `The arenas in this pack (${all.length})`), list,
+    h("p", { class: "hint dim", "data-nopolish": "", style: "margin:6px 0" }, `To add or change one: in the Arena Studio open Arena…, make or pick an arena, and use "Use this arena in the pack" (as the main arena, or as an extra arena with an id). Then Save here once to be sure and run py tools/studio/sync_pack.py pull ${S.pack}.`),
+    h("div", { class: "ctl" }, h("a", { class: "btn small", href: "arena/", target: "_blank", rel: "noopener", title: "Opens in a new tab" }, "Open the Arena Studio"))));
+  // ---- the schedule
+  const rows = ((S.files.arenas || {}).schedule || []);
+  const table = h("table", { class: "t" }, h("tr", {}, ["from wave", "arena", ""].map(x => h("th", {}, x))));
+  rows.forEach((e, i) => table.append(h("tr", {},
+    h("td", {}, numField(e, "from_wave", f, { integer: true, min: 1, after: () => renderMain() })),
+    h("td", {}, selectField(e, "arena", f, all.map(id => [id, `${arenaName(id)}${id === "main" ? " (main)" : ""}`]), { after: () => renderMain() })),
+    h("td", {}, h("button", { class: "btn small", title: "Remove this change", onclick: () => { rows.splice(i, 1); touch(f); renderMain(); } }, "✕")))));
+  const runs = arenaRuns(30);
+  const preview = h("div", { class: "ctl", style: "margin:8px 0;flex-wrap:wrap;gap:6px" }, h("span", { class: "dim" }, "In play:"), runs.map(r => h("span", { class: "tag", title: arenaName(r.id) }, `${r.from === r.to ? "wave " + r.from : r.to === 30 ? "waves " + r.from + " on" : "waves " + r.from + "–" + r.to}: ${arenaName(r.id)}`)));
+  wrap.append(h("details", { class: "card", open: true }, h("summary", {}, `Which arena, on which wave (${rows.length} change${rows.length === 1 ? "" : "s"})`),
+    h("p", { class: "hint dim", style: "margin:6px 0" }, "Waves before the first change, and every wave when there is no change, are played in the main arena. When a change takes effect, the arena swaps right after the shop, behind the wave banner, and the heroes start in the middle of it."),
+    rows.length ? h("div", { style: "overflow-x:auto" }, table) : h("p", { class: "dim" }, "No changes: every wave is played in the main arena."),
+    h("div", { class: "ctl" }, h("button", { class: "btn small", disabled: all.length < 2, title: all.length < 2 ? "Add a second arena first" : "", onclick: () => {
+      const last = rows.length ? Math.max(...rows.map(e => e.from_wave || 1)) : 0;
+      sch().push({ arena: extras[0] || "main", from_wave: last + 5 }); touch(f); renderMain();
+    } }, "+ add a change")),
+    preview));
+  return wrap;
+}
+
 /* Survivorator Studio: the editor for game packs (packs/<game>/*.json). Everything is saved to Firestore (packs/<pack>/files/<name> = {json, updated, by}); tools/studio/sync_pack.py moves it to and from the repo files the game reads. */
 
 // ---------------------------------------------------------------- small helpers
@@ -3835,7 +3926,7 @@ const TABS = [
   ["heroes", "Heroes", "heroes"], ["powers", "Powers", "powers"], ["looks", "Power looks", "looks"], ["effects", "Hero effects", "hero_effects"], ["fusion", "Fusion", "fusion"], ["gear", "Gear", "gear"], ["talents", "Talents", "talents"], ["abilities", "Abilities", "abilities"],
   ["enemies", "Enemies", "enemies"], ["bosses", "Bosses", "bosses"],
   ["achievements", "Achievements", "achievements"], ["meta", "Meta shop", "meta"],
-  ["audio", "Audio", "audio"], ["menus", "Menus", "ui"], ["pictures", "Pictures", ""], ["theme", "Theme", "ui"],
+  ["audio", "Audio", "audio"], ["menus", "Menus", "ui"], ["pictures", "Pictures", ""], ["theme", "Theme", "ui"], ["arenas", "Arenas", "arenas"],
   ["problems", "Problems", ""], ["content", "All content", ""],
 ];
 
@@ -3926,6 +4017,7 @@ async function loadPack(name) {
     for (const ch of snap2.docChanges()) {
       const d = ch.doc;
       if (d.metadata.hasPendingWrites) continue;
+      if (ch.type === "removed") { if (S.files[d.id] !== undefined && !S.dirty.has(d.id)) { delete S.files[d.id]; delete S.orig[d.id]; changed = true; } continue; }   // deleted in the cloud (an arena removed elsewhere)
       const by = d.data().by;
       if (S.dirty.has(d.id) || S.orig[d.id] === d.data().json) continue;
       ingest(d); changed = true;
@@ -3952,7 +4044,7 @@ async function saveAll() {
     S.orig[n] = text;
     S.dirty.delete(n);
   }
-  await setDoc(doc(db, "packs", S.pack), { name: S.pack, updated: serverTimestamp() });
+  await setDoc(doc(db, "packs", S.pack), { name: S.pack, updated: serverTimestamp(), arenas: extraArenaIds() });
   updateChrome();
   toast(`Saved ${names.length} file${names.length > 1 ? "s" : ""} (${names.join(", ")}). To use it in the game: py tools/studio/sync_pack.py pull ${S.pack}`, 6000);
 }
@@ -4173,7 +4265,7 @@ function renderMain() {
   const y = m.scrollTop;
   m.innerHTML = "";
   if (!S.pack) { m.append(h("p", { class: "lead" }, "No pack loaded.")); return; }
-  const fn = { overview: tabOverview, rules: tabRules, presets: tabPresets, heroes: tabHeroes, powers: tabPowers, gear: tabGear, talents: tabTalents, achievements: tabAchievements, meta: tabMeta, audio: tabAudio, menus: tabMenus, pictures: tabPictures, theme: tabTheme, enemies: tabEnemies, bosses: tabBosses, abilities: tabAbilities, fusion: tabFusion, looks: tabLooks, effects: tabEffects, shop: tabShop, content: tabContent, problems: tabProblems }[S.tab];
+  const fn = { overview: tabOverview, rules: tabRules, presets: tabPresets, heroes: tabHeroes, powers: tabPowers, gear: tabGear, talents: tabTalents, achievements: tabAchievements, meta: tabMeta, audio: tabAudio, menus: tabMenus, pictures: tabPictures, theme: tabTheme, arenas: tabArenas, enemies: tabEnemies, bosses: tabBosses, abilities: tabAbilities, fusion: tabFusion, looks: tabLooks, effects: tabEffects, shop: tabShop, content: tabContent, problems: tabProblems }[S.tab];
   m.append(h("datalist", { id: "abilityIds" }, ids("abilities", "abilities").map(i => h("option", { value: i }))));
   const view = fn(), banners = moduleBanners(S.tab);
   if (banners.length) { const after = view.querySelector(":scope > p.lead") || view.querySelector(":scope > h2"); if (after) after.after(...banners); else view.prepend(...banners); }   // under the tab's title and intro
@@ -4320,8 +4412,8 @@ function tabOverview() {
     wrap.append(h("details", { class: "card" }, h("summary", {}, `Arena: ${ar.name || "(unnamed)"}`),
       row("size", [h("span", {}, `${(ar.size || [])[0] || "?"} × ${(ar.size || [])[1] || "?"} px`), h("span", { class: "unit" }, `camera margin ${mg.left ?? "?"} / ${mg.right ?? "?"} / ${mg.top ?? "?"} / ${mg.bottom ?? "?"} (left / right / top / bottom)`)]),
       row("art", h("span", {}, `${ar.props.length} props`)),
-      h("p", { class: "hint dim", "data-nopolish": "", style: "margin:6px 0" }, `This pack has its own copy of the arena. To change it: Arena Studio, Arena… , "New arena / Save as", Start from "the arena in pack ${S.pack}", edit, then Arena… , "Use this arena in the pack" and Save here again. To play it: py tools/studio/sync_pack.py pull ${S.pack}.`),
-      h("div", { class: "ctl" }, h("a", { class: "btn small", href: "arena/", target: "_blank", rel: "noopener", title: "Opens in a new tab" }, "Open the Arena Studio"))));
+      h("p", { class: "hint dim", style: "margin:6px 0" }, "This is the pack's main arena. The Arenas tab lists it with any extra arenas and says which wave is played in which; the Arena Studio draws them and puts them into the pack."),
+      h("div", { class: "ctl" }, h("button", { class: "btn small", onclick: () => { S.tab = "arenas"; renderNav(); renderMain(); } }, "Open the Arenas tab"), h("a", { class: "btn small", href: "arena/", target: "_blank", rel: "noopener", title: "Opens in a new tab" }, "Open the Arena Studio"))));
   }
   return wrap;
 }
@@ -4586,7 +4678,7 @@ const HINTS = {
   shape: () => C.shapes, damage_type: () => C.damage_types, status: () => C.statuses, stat: () => C.stats, start_power: () => ids("powers", "powers"), ability: () => ["", ...ids("abilities", "abilities")],
   signature: () => ids("powers", "powers"), category: () => C.reward_categories, puppet: () => (S.files.puppets.puppets || []),
 };
-const CONTENT_FILES = [["heroes", "Heroes"], ["powers", "Powers"], ["looks", "Power looks"], ["bosses", "Bosses"], ["gear", "Gear"], ["talents", "Talents"], ["achievements", "Achievements"], ["fusion", "Fusion"], ["hero_effects", "Hero effects"], ["shop", "Shop leanings"], ["puppets", "Puppets list"], ["enemies", "Enemies (raw)"], ["abilities", "Abilities (raw)"], ["game", "game.json (raw)"]];
+const CONTENT_FILES = [["heroes", "Heroes"], ["powers", "Powers"], ["looks", "Power looks"], ["bosses", "Bosses"], ["gear", "Gear"], ["talents", "Talents"], ["achievements", "Achievements"], ["fusion", "Fusion"], ["hero_effects", "Hero effects"], ["shop", "Shop leanings"], ["puppets", "Puppets list"], ["arenas", "Arenas schedule (raw)"], ["enemies", "Enemies (raw)"], ["abilities", "Abilities (raw)"], ["game", "game.json (raw)"]];
 
 function tabContent() {
   const file = S.sel.file || "heroes";
