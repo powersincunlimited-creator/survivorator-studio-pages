@@ -4099,6 +4099,97 @@ function tabCurrencies() {
   return wrap;
 }
 
+/* The Build game tab: runs tools/build_game.py on this computer through the build helper (py tools/build_server.py), and shows its log.
+   A web page cannot start programs, so the helper (a small local server, 127.0.0.1 only) does it; without it the tab says how to start it. */
+const BLD = { port: Number(localStorage.getItem("studio_build_port")) || 8765, st: null, err: "", lines: [], next: 0, running: false, exit: null, title: "", timer: null, opts: { sync: true, check: true, prepare: false, debug: false }, pack: null };
+const bldUrl = p => `http://127.0.0.1:${BLD.port}${p}`;
+async function bldCall(path, body) {
+  const r = await fetch(bldUrl(path), body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({ ok: false, error: "the helper answered something unreadable" }));
+  if (!r.ok || j.ok === false) throw new Error(j.error || `the helper said ${r.status}`);
+  return j;
+}
+async function bldRefresh() {   // ask the helper what it has; shows the "not running" help when it does not answer
+  try { BLD.st = await bldCall("/status"); BLD.err = ""; } catch (e) { BLD.st = null; BLD.err = String(e.message || e); }
+  if (BLD.st && BLD.st.job.running) bldPoll();
+  if (S.tab === "build") renderMain();
+}
+function bldPoll() {   // the log, once a second while a job runs
+  if (BLD.timer) return;
+  BLD.running = true;
+  const tick = async () => {
+    try {
+      const j = await bldCall(`/log?since=${BLD.next}`);
+      BLD.lines.push(...j.lines); BLD.next = j.next; BLD.title = j.title; BLD.exit = j.exit;
+      const pre = document.getElementById("bldLog");
+      if (pre && j.lines.length) { const atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 30; pre.textContent = BLD.lines.join("\n"); if (atEnd) pre.scrollTop = pre.scrollHeight; }
+      if (!j.running) { BLD.running = false; BLD.timer = null; await bldRefresh(); toast(j.exit === 0 ? "Done: " + j.title : "Stopped with a problem: see the log", 5000); return; }
+    } catch (e) { BLD.running = false; BLD.timer = null; BLD.st = null; BLD.err = String(e.message || e); if (S.tab === "build") renderMain(); return; }
+    BLD.timer = setTimeout(tick, 1000);
+  };
+  BLD.timer = setTimeout(tick, 0);
+}
+async function bldStart(path, body, what) {
+  BLD.lines = []; BLD.next = 0; BLD.exit = null; BLD.title = what;
+  try { await bldCall(path, body); } catch (e) { toast(String(e.message || e), 6000); return; }
+  bldPoll(); renderMain();
+}
+const bldAgo = t => { const m = Math.round((Date.now() / 1000 - t) / 60); return m < 1 ? "just now" : m < 90 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+
+function tabBuild() {
+  if (!BLD.fresh) { BLD.fresh = true; bldRefresh(); setTimeout(() => { BLD.fresh = false; }, 3000); }   // asks again each time the tab opens
+  const wrap = h("div", {}, h("h2", {}, "Build game"), h("p", { class: "lead" }, "Turns a pack into a Windows game: one .exe with the game, the pack, its pictures and its puppets inside. It pulls what you saved in the Studio, checks it, plays it through headless, exports it and starts the exe once to make sure it loads."));
+  const st = BLD.st;
+  if (!st) {   // the helper is not running
+    const cmd = "py tools/build_server.py";
+    wrap.append(h("div", { class: "card" },
+      h("h3", { style: "margin-top:0" }, "The build helper is not running"),
+      h("p", { class: "hint dim" }, "A web page cannot start programs, so a small helper on this computer does the building. Start it once (it only answers this computer and this Studio), leave its window open, and press Connect."),
+      h("p", {}, "In the game's folder (the one with project.godot): double-click ", h("b", {}, "build_helper.bat"), ", or run:"),
+      h("pre", { style: "margin:6px 0;padding:8px;background:var(--panel2);border-radius:6px;user-select:all" }, cmd),
+      h("div", { class: "ctl", style: "gap:8px;align-items:center" },
+        h("button", { class: "btn small", onclick: async () => { try { await navigator.clipboard.writeText(cmd); toast("Copied"); } catch (e) { toast("The browser would not copy: select the text instead"); } } }, "Copy the command"),
+        h("label", { class: "hint dim" }, "port ", h("input", { type: "number", value: BLD.port, style: "width:80px", onchange: ev => { BLD.port = Number(ev.target.value) || 8765; try { localStorage.setItem("studio_build_port", String(BLD.port)); } catch (e) { /* the page works without it */ } } })),
+        h("button", { class: "btn primary", onclick: bldRefresh }, "Connect")),
+      BLD.err ? h("p", { class: "hint dim", style: "margin-top:8px" }, "Not answering yet (" + BLD.err + "). A Studio opened from a local file needs the helper started with --allow-file.") : null));
+    return wrap;
+  }
+  const busy = st.job.running || BLD.running;
+  if (!BLD.pack || !st.packs.some(p => p.id === BLD.pack)) BLD.pack = (st.packs.find(p => p.id === S.pack) || st.packs[0] || {}).id;
+  const info = st.packs.find(p => p.id === BLD.pack) || {};
+  const opt = (key, label, tip) => h("label", { style: "display:flex;gap:6px;align-items:center", title: tip }, h("input", { type: "checkbox", checked: BLD.opts[key], disabled: busy, onchange: ev => { BLD.opts[key] = ev.target.checked; renderMain(); } }), label);
+  const packSel = h("select", { disabled: busy, onchange: ev => { BLD.pack = ev.target.value; renderMain(); } }, st.packs.map(p => h("option", { value: p.id }, p.id === p.name ? p.id : `${p.id} (${p.name})`)));
+  packSel.value = BLD.pack || "";
+
+  if (!st.godot) wrap.append(h("div", { class: "card" }, h("b", {}, "Godot was not found "), "at its usual place. Set the GODOT environment variable to its console exe and restart the helper."));
+  if (st.godot && !st.templates) wrap.append(h("div", { class: "card" }, h("b", {}, `The Godot export templates (${st.version}) are not installed. `), "Building an exe needs them, once (about 1 GB download); checking a pack does not. ",
+    h("button", { class: "btn", disabled: busy, onclick: async () => { if (await sure("Download and install the Godot export templates (about 1 GB)?")) bldStart("/install-templates", {}, "install the Godot export templates"); } }, "Download and install")));
+
+  const unsaved = S.dirty.size;
+  wrap.append(h("div", { class: "card" },
+    h("div", { class: "ctl", style: "gap:10px;align-items:center;flex-wrap:wrap" }, h("b", {}, "Pack"), packSel,
+      info.exe ? h("span", { class: "hint dim" }, `last build: ${info.exe}, ${(info.size / 1048576).toFixed(0)} MB, ${bldAgo(info.built)}`) : h("span", { class: "hint dim" }, "not built yet")),
+    h("div", { style: "display:grid;gap:6px;margin:10px 0" },
+      opt("sync", "Pull the latest from the Studio's cloud first", "On: the build uses what you have SAVED in the Studio. Off: it builds from the pack files already in the repo."),
+      opt("check", "Check the pack (validator and a headless play-through)", "Off: skips both checks"),
+      opt("prepare", "Only sync and check, don't build the exe", "A quick test of the pack; needs no export templates"),
+      opt("debug", "Debug build (the game opens with a console window)", "For hunting a problem in the exe")),
+    unsaved && BLD.opts.sync ? h("p", { class: "hint", style: "color:var(--warn)" }, `You have ${unsaved} unsaved change${unsaved > 1 ? "s" : ""} (${[...S.dirty].join(", ")}). The build pulls what is SAVED, so save first (the Save button above) or those edits will not be in the exe.`) : null,
+    h("div", { class: "ctl", style: "gap:8px;margin-top:6px" },
+      h("button", { class: "btn primary", disabled: busy || !BLD.pack || (!BLD.opts.prepare && !st.templates), title: !st.templates && !BLD.opts.prepare ? "Install the export templates first" : null,
+        onclick: () => bldStart("/build", { pack: BLD.pack, no_sync: !BLD.opts.sync, no_check: !BLD.opts.check, prepare_only: BLD.opts.prepare, debug: BLD.opts.debug }, `build ${BLD.pack}`) }, BLD.opts.prepare ? "Check the pack" : "Build the exe"),
+      h("button", { class: "btn danger", disabled: !busy, onclick: async () => { try { await bldCall("/cancel", {}); } catch (e) { toast(String(e.message || e)); } } }, "Stop"),
+      h("button", { class: "btn", disabled: busy || !info.exe, onclick: async () => { try { await bldCall("/run", { pack: BLD.pack }); } catch (e) { toast(String(e.message || e)); } } }, "Play the exe"),
+      h("button", { class: "btn", disabled: !info.exe, onclick: async () => { try { await bldCall("/reveal", { pack: BLD.pack }); } catch (e) { toast(String(e.message || e)); } } }, "Open the folder"))));
+
+  const head = busy ? `Running: ${st.job.title || BLD.title}…` : BLD.exit === null || BLD.exit === undefined ? (BLD.lines.length ? "Log" : "Log (nothing has run yet)") : (BLD.exit === 0 ? "✓ Finished: " : "✗ Stopped: ") + BLD.title;
+  const pre = h("pre", { id: "bldLog", style: "max-height:420px;overflow:auto;padding:10px;background:var(--panel2);border-radius:6px;font-size:12px;white-space:pre-wrap;margin:6px 0 0" }, BLD.lines.join("\n"));
+  wrap.append(h("div", { class: "card" }, h("b", {}, head), pre, h("p", { class: "hint dim", style: "margin-top:8px" }, "The exe goes to build/<pack>/ in the game's folder. Its save files live in %APPDATA%/Survivorator/<pack>/, apart from the editor's.")));
+  setTimeout(() => { pre.scrollTop = pre.scrollHeight; }, 0);
+  if (st.job.running && !BLD.timer) bldPoll();   // a job started before this page opened
+  return wrap;
+}
+
 /* Survivorator Studio: the editor for game packs (packs/<game>/*.json). Everything is saved to Firestore (packs/<pack>/files/<name> = {json, updated, by}); tools/studio/sync_pack.py moves it to and from the repo files the game reads. */
 
 // ---------------------------------------------------------------- small helpers
@@ -4159,7 +4250,7 @@ const TABS = [
   ["enemies", "Enemies", "enemies"], ["bosses", "Bosses", "bosses"],
   ["achievements", "Achievements", "achievements"], ["meta", "Meta shop", "meta"], ["currencies", "Currencies", "currencies"],
   ["audio", "Audio", "audio"], ["menus", "Menus", "ui"], ["pictures", "Pictures", ""], ["theme", "Theme", "ui"], ["arenas", "Arenas", "arenas"],
-  ["problems", "Problems", ""], ["content", "All content", ""],
+  ["problems", "Problems", ""], ["content", "All content", ""], ["build", "Build game", ""],
 ];
 
 
@@ -4473,7 +4564,7 @@ function renderPackSelect() {
   sel.value = S.pack || "";
 }
 /* the sidebar's sections: the first tab of each starts it under its heading (the order of TABS above is the order shown, so keep each section's tabs together there) */
-const NAV_SECTIONS = { overview: "Game", heroes: "Heroes and powers", enemies: "Enemies", achievements: "Progress", audio: "Look and sound", problems: "Checks" };
+const NAV_SECTIONS = { overview: "Game", heroes: "Heroes and powers", enemies: "Enemies", achievements: "Progress", audio: "Look and sound", problems: "Checks", build: "Release" };
 function renderNav() {
   const nav = $("#nav"); nav.innerHTML = "";
   for (const [id, label] of TABS) {
@@ -4499,7 +4590,7 @@ function renderMain() {
   const y = m.scrollTop;
   m.innerHTML = "";
   if (!S.pack) { m.append(h("p", { class: "lead" }, "No pack loaded.")); return; }
-  const fn = { overview: tabOverview, rules: tabRules, presets: tabPresets, heroes: tabHeroes, powers: tabPowers, gear: tabGear, talents: tabTalents, achievements: tabAchievements, meta: tabMeta, audio: tabAudio, menus: tabMenus, pictures: tabPictures, theme: tabTheme, arenas: tabArenas, currencies: tabCurrencies, enemies: tabEnemies, bosses: tabBosses, abilities: tabAbilities, fusion: tabFusion, looks: tabLooks, effects: tabEffects, shop: tabShop, content: tabContent, problems: tabProblems }[S.tab];
+  const fn = { overview: tabOverview, rules: tabRules, presets: tabPresets, heroes: tabHeroes, powers: tabPowers, gear: tabGear, talents: tabTalents, achievements: tabAchievements, meta: tabMeta, audio: tabAudio, menus: tabMenus, pictures: tabPictures, theme: tabTheme, arenas: tabArenas, currencies: tabCurrencies, enemies: tabEnemies, bosses: tabBosses, abilities: tabAbilities, fusion: tabFusion, looks: tabLooks, effects: tabEffects, shop: tabShop, content: tabContent, problems: tabProblems, build: tabBuild }[S.tab];
   m.append(h("datalist", { id: "abilityIds" }, ids("abilities", "abilities").map(i => h("option", { value: i }))));
   const view = fn(), banners = moduleBanners(S.tab);
   if (banners.length) { const after = view.querySelector(":scope > p.lead") || view.querySelector(":scope > h2"); if (after) after.after(...banners); else view.prepend(...banners); }   // under the tab's title and intro
