@@ -475,11 +475,151 @@
    auth means no login screen for either person — it signs in silently
    on load; Firestore's security rules (not this client) are what
    actually gate access, via `request.auth != null`. ---------- */
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
-import { getAuth, signInAnonymously, onAuthStateChanged }
-  from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
-import { getFirestore, collection, collectionGroup, doc, getDocs, setDoc, deleteDoc, addDoc, query, orderBy, limit, onSnapshot }
-  from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+/* LOCAL STORE: the studios' database on this computer, for the desktop app.
+   The four studios talk to Firestore through a small set of functions (initializeApp, getAuth, signInAnonymously, onAuthStateChanged, getFirestore, collection, collectionGroup, doc, getDoc, getDocs, setDoc, addDoc,
+   deleteDoc, query, orderBy, limit, onSnapshot, serverTimestamp, arrayUnion). `makeLocalStore(base)` returns the same names, backed by the desktop app's files (tools/desktop/studio_app.py, /api/store/...) instead
+   of the cloud, so the studios run unchanged: a page starts with  const FB = DESKTOP ? makeLocalStore("/api/store/") : await import(<firebase from gstatic>)  and takes its functions from FB.
+   The data has the same shape as in the cloud (documents with fields, sub-collections), so what the studios saved in the cloud can be copied here as it is (tools/desktop/cloud_to_local.py).
+   A time (serverTimestamp) is stored as {"__ts": "<ISO time>"} and read back as an object with toDate() / toMillis(), like Firestore's Timestamp. onSnapshot polls the store every 2 s (another studio page may write). */
+
+function makeLocalStore(base) {
+  const post = async (op, body) => {
+    const r = await fetch(base + op, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({ ok: false, error: "the app answered something unreadable" }));
+    if (!r.ok || j.ok === false) throw new Error(j.error || `the app said ${r.status}`);
+    return j;
+  };
+  class Timestamp {
+    constructor(iso) { this._iso = iso; this.seconds = Math.floor(Date.parse(iso) / 1000); this.nanoseconds = 0; }
+    toDate() { return new Date(this._iso); }
+    toMillis() { return Date.parse(this._iso); }
+    toJSON() { return { __ts: this._iso }; }
+  }
+  const SV = Symbol("sentinel");
+  const serverTimestamp = () => ({ [SV]: "ts" });
+  const arrayUnion = (...els) => ({ [SV]: "au", els });
+  const arrayRemove = (...els) => ({ [SV]: "ar", els });
+  const nowIso = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const isObj = x => x !== null && typeof x === "object" && !Array.isArray(x) && !(x instanceof Timestamp);
+
+  /* a value as stored: sentinels resolved (against the old value of the field for arrays), Timestamps as {__ts} */
+  function pack(v, old) {
+    if (v && typeof v === "object" && v[SV]) {
+      if (v[SV] === "ts") return { __ts: nowIso() };
+      const cur = Array.isArray(old) ? old : [];
+      if (v[SV] === "au") return [...cur, ...v.els.filter(e => !cur.some(c => same(c, e)))];
+      return cur.filter(c => !v.els.some(e => same(c, e)));
+    }
+    if (v instanceof Timestamp) return { __ts: v._iso };
+    if (Array.isArray(v)) return v.map(x => pack(x));
+    if (isObj(v)) { const o = {}; for (const k of Object.keys(v)) if (v[k] !== undefined) o[k] = pack(v[k], isObj(old) ? old[k] : undefined); return o; }
+    return v;
+  }
+  function unpack(v) {
+    if (Array.isArray(v)) return v.map(unpack);
+    if (isObj(v)) { if (Object.keys(v).length === 1 && typeof v.__ts === "string") return new Timestamp(v.__ts); const o = {}; for (const k of Object.keys(v)) o[k] = unpack(v[k]); return o; }
+    return v;
+  }
+  function merge(old, add) {   // setDoc(..., {merge: true}): maps merge field by field, everything else is replaced
+    const out = { ...(old || {}) };
+    for (const k of Object.keys(add)) out[k] = isObj(add[k]) && isObj(out[k]) ? merge(out[k], add[k]) : add[k];
+    return out;
+  }
+
+  const db = { __local: true };
+  const segs = a => a.flatMap(x => String(x).split("/").filter(Boolean));
+  const colRef = path => ({ __kind: "collection", path, id: path.split("/").pop() });
+  const docRef = path => ({ __kind: "doc", path, id: path.split("/").pop(), parent: colRef(path.split("/").slice(0, -1).join("/")) });
+  function collection(parent, ...rest) {
+    const p = (parent && parent.path ? [parent.path] : []).concat(segs(rest)).join("/");
+    if (p.split("/").length % 2 !== 1) throw new Error("collection() needs an odd number of path parts: " + p);
+    return colRef(p);
+  }
+  function doc(parent, ...rest) {
+    if (parent && parent.__kind === "collection" && !rest.length) return docRef(parent.path + "/" + Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 12));
+    const p = (parent && parent.path ? [parent.path] : []).concat(segs(rest)).join("/");
+    if (p.split("/").length % 2 !== 0) throw new Error("doc() needs an even number of path parts: " + p);
+    return docRef(p);
+  }
+  const collectionGroup = (_db, id) => ({ __kind: "group", id });
+  const makeSnap = (path, data, exists) => ({ id: path.split("/").pop(), ref: docRef(path), exists: () => exists, data: () => (exists ? unpack(data) : undefined), metadata: { hasPendingWrites: false, fromCache: false } });
+
+  async function getDoc(ref) { const j = await post("get", { path: ref.path }); return makeSnap(ref.path, j.data, !!j.exists); }
+  const needsOld = v => (v && typeof v === "object" && v[SV] && v[SV] !== "ts") || (v && typeof v === "object" && !(v instanceof Timestamp) && Object.values(v).some(needsOld));
+  async function setDoc(ref, data, opts) {
+    let old = null;
+    if ((opts && opts.merge) || needsOld(data)) { const j = await post("get", { path: ref.path }); old = j.exists ? j.data : null; }   // the old value only when it matters: a chunk of a picture is nearly 1 MB
+    let next = pack(data, old);
+    if (opts && opts.merge && old) next = merge(old, next);
+    await post("set", { path: ref.path, data: next });
+  }
+  async function addDoc(col, data) { const ref = doc(col); await setDoc(ref, data); return ref; }
+  async function deleteDoc(ref) { await post("delete", { path: ref.path }); }
+  const orderBy = (field, dir) => ({ __c: "order", field, dir: dir === "desc" ? -1 : 1 });
+  const limit = n => ({ __c: "limit", n });
+  const query = (base, ...cons) => ({ __kind: "query", base, cons });
+  const cmpVal = v => (v instanceof Timestamp ? v.toMillis() : v);
+  async function fetchDocs(q) {
+    const base = q.__kind === "query" ? q.base : q, cons = q.__kind === "query" ? q.cons : [];
+    let rows;
+    if (base.__kind === "group") rows = (await post("group", { name: base.id })).docs;
+    else rows = (await post("list", { path: base.path })).docs;
+    let snaps = rows.map(d => makeSnap(d.path, d.data, true));
+    for (const c of cons.filter(c => c.__c === "order")) {
+      snaps.sort((a, b) => { const x = cmpVal(a.data()[c.field]), y = cmpVal(b.data()[c.field]); return (x < y ? -1 : x > y ? 1 : 0) * c.dir; });
+    }
+    const lim = cons.find(c => c.__c === "limit");
+    if (lim) snaps = snaps.slice(0, lim.n);
+    return snaps;
+  }
+  async function getDocs(q) { const docs = await fetchDocs(q); return { docs, size: docs.length, empty: !docs.length, forEach: f => docs.forEach(f) }; }
+
+  function onSnapshot(q, cb, errCb) {   // polls; the first call has every document as "added"
+    let prev = null, stopped = false, timer = null;
+    const base = q.__kind === "query" ? q.base : q;
+    const tick = async first => {
+      if (stopped) return;
+      try {
+        const docs = await fetchDocs(q);
+        for (const d of docs) d._raw = JSON.stringify(d.data(), (k, v) => (v instanceof Timestamp ? v._iso : v));
+        const cur = new Map(docs.map(d => [d.ref.path, d]));
+        const changes = [];
+        if (prev === null) { for (const d of docs) changes.push({ type: "added", doc: d }); }
+        else {
+          for (const d of docs) { const o = prev.get(d.ref.path); if (!o) changes.push({ type: "added", doc: d }); else if (!same(o._raw, d._raw)) changes.push({ type: "modified", doc: d }); }
+          for (const [p, d] of prev) if (!cur.has(p)) changes.push({ type: "removed", doc: d });
+        }
+        if (prev === null || changes.length) { prev = cur; if (!stopped) cb({ docs, size: docs.length, empty: !docs.length, forEach: f => docs.forEach(f), docChanges: () => changes, metadata: { hasPendingWrites: false } }); }
+        else prev = cur;
+      } catch (e) { if (errCb) errCb(e); else console.error(e); }
+      if (!stopped) timer = setTimeout(() => tick(false), 2000);
+    };
+    tick(true);
+    return () => { stopped = true; if (timer) clearTimeout(timer); };
+  }
+
+  const user = { uid: "local", isAnonymous: true };
+  return {
+    initializeApp: () => ({ __local: true }),
+    getAuth: () => ({ currentUser: user }),
+    signInAnonymously: async () => ({ user }),
+    onAuthStateChanged: (_auth, cb) => { setTimeout(() => cb(user), 0); return () => {}; },
+    getFirestore: () => db,
+    collection, collectionGroup, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, query, orderBy, limit, onSnapshot, serverTimestamp, arrayUnion, arrayRemove, Timestamp,
+  };
+}
+
+/* the desktop app answers /api/info on the page's own origin; on the website there is nothing there and the cloud is used */
+async function detectDesktopStore() {
+  try { const r = await fetch("/api/info"); if (r.ok) { const j = await r.json(); if (j && j.desktop && j.store) return j; } } catch (e) { /* the website */ }
+  return null;
+}
+
+const __FB = (await detectDesktopStore()) ? makeLocalStore("/api/store/") : null;   // the desktop app: the data is on this computer; the website: the cloud
+const { initializeApp } = __FB || await import("https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js");
+const { getAuth, signInAnonymously, onAuthStateChanged } = __FB || await import("https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js");
+const { getFirestore, collection, collectionGroup, doc, getDocs, setDoc, deleteDoc, addDoc, query, orderBy, limit, onSnapshot } = __FB || await import("https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js");
 
 /* The shared IMAGE LIBRARY of the art studios: upload a picture (png / jpg / webp / gif), cut out the part you want (crop, remove the background, erase / restore with a brush, lasso), keep its PNG
    transparency, and use it as a part of a puppet (and, later, a weapon, a menu, the arena). Pictures live in the cloud collection `images` (images/<name>.png = {size, chunks, w, h, mime, updated, by},
