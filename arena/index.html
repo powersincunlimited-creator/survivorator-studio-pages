@@ -339,8 +339,46 @@ function makeLocalStore(base) {
 
 /* the desktop app answers /api/info on the page's own origin; on the website there is nothing there and the cloud is used */
 async function detectDesktopStore() {
-  try { const r = await fetch("/api/info"); if (r.ok) { const j = await r.json(); if (j && j.desktop && j.store) return j; } } catch (e) { /* the website */ }
+  try { const r = await fetch("/api/info"); if (r.ok) { const j = await r.json(); if (j && j.desktop && j.store) { desktopBadge(j); return j; } } } catch (e) { /* the website */ }
   return null;
+}
+
+/* "On this computer" badge, bottom left of every studio in the app: where the data is, open that folder, or switch to another data folder (a different set of packs, pictures and puppets) */
+function desktopBadge(info) {
+  const mount = () => {
+    if (document.getElementById("deskBadge")) return;
+    const css = document.createElement("style");
+    css.textContent = "#deskBadge{position:fixed;left:10px;bottom:8px;z-index:2147483000;font:11px/1.3 system-ui,sans-serif;background:rgba(14,16,32,.88);color:#aab0d6;border:1px solid #2c3052;border-radius:12px;padding:3px 10px;cursor:pointer;max-width:60vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#deskBadge:hover{color:#fff;border-color:#35d0ff}" +
+      "#deskDlg{position:fixed;inset:0;z-index:2147483001;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;font:13px/1.4 system-ui,sans-serif}#deskDlg .box{background:#12152a;color:#e9eaf6;border:1px solid #2c3052;border-radius:10px;padding:16px 18px;width:min(560px,92vw)}#deskDlg code{display:block;word-break:break-all;background:#0b0d1b;padding:6px 8px;border-radius:6px;margin:6px 0}#deskDlg input{width:100%;box-sizing:border-box;background:#0b0d1b;color:#e9eaf6;border:1px solid #2c3052;border-radius:6px;padding:6px 8px;margin:4px 0}#deskDlg button{background:#1b2040;color:#e9eaf6;border:1px solid #2c3052;border-radius:6px;padding:5px 12px;margin:4px 6px 0 0;cursor:pointer}#deskDlg button:hover{border-color:#35d0ff}#deskDlg .dim{color:#8f94b8;font-size:12px}#deskDlg .err{color:#ff6b7a}";
+    document.head.append(css);
+    const name = p => String(p).split(/[\\/]/).filter(Boolean).pop() || p;
+    const b = document.createElement("div");
+    b.id = "deskBadge"; b.title = info.data_dir; b.textContent = "● Saved on this computer · " + name(info.data_dir);
+    b.onclick = () => dialog();
+    document.body.append(b);
+    function dialog() {
+      const ov = document.createElement("div"); ov.id = "deskDlg";
+      const box = document.createElement("div"); box.className = "box"; ov.append(box);
+      const mk = (tag, text, cls) => { const e = document.createElement(tag); e.textContent = text; if (cls) e.className = cls; return e; };
+      box.append(mk("b", "Your data is on this computer"), mk("p", "Packs, pictures, recordings and puppets are saved in this folder (nothing is sent anywhere). Back it up by copying the folder, or share one pack with Export… in the pack editor.", "dim"), mk("code", info.data_dir));
+      const open = mk("button", "Open the folder"); open.onclick = () => fetch("/api/workspace/reveal", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      box.append(open, mk("p", "Use another folder (it is made if it does not exist; a new one starts with the example packs):", "dim"));
+      const inp = document.createElement("input"); inp.value = info.data_dir; inp.spellcheck = false; box.append(inp);
+      const msg = mk("p", "", "err"); const go = mk("button", "Switch to this folder");
+      go.onclick = async () => {
+        msg.textContent = "";
+        try { const r = await fetch("/api/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: inp.value.trim() }) }); const j = await r.json(); if (!r.ok || !j.ok) throw new Error(j.error || r.status); location.reload(); }
+        catch (e) { msg.textContent = String(e.message || e); }
+      };
+      const close = mk("button", "Close"); close.onclick = () => ov.remove();
+      box.append(go, close, msg);
+      const recent = (info.recent || []).filter(p => p !== info.data_dir);
+      if (recent.length) { box.append(mk("p", "Folders used before:", "dim")); for (const p of recent) { const x = mk("button", p); x.style.display = "block"; x.style.maxWidth = "100%"; x.onclick = () => { inp.value = p; go.click(); }; box.append(x); } }
+      ov.addEventListener("mousedown", e => { if (e.target === ov) ov.remove(); });
+      document.body.append(ov); inp.focus(); inp.select();
+    }
+  };
+  if (document.body) mount(); else document.addEventListener("DOMContentLoaded", mount);
 }
 
 const __FB = (await detectDesktopStore()) ? makeLocalStore("/api/store/") : null;   // the desktop app: the data is on this computer; the website: the cloud
